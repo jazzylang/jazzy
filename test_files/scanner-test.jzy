@@ -1,0 +1,50 @@
+// Identifiers
+id
+ident-ifier
+iden-2fier
+identifier-ë
+let-notakeyword
+
+// Keywords
+let
+mut
+int
+float
+
+// Numbers
+1
+0123456789
+1_000_000_000
+3.14159265358979323
+0x10_AB_de_
+0b1000_0101_1111_0000
+1.602_176_634e-19
+2e5
+
+// Separators
+( )
+{ }
+,
+.
+;
+:
+
+// Operators
+- -=
++ +=
+/ /=
+* *=
+^ ^=
+! !=
+:= ==
+< <=
+> >=
+
+[[
+|| This
+|| is
+|| a
+|| multiline
+|| comment
+|| [[ Bonus [[ nested ]] comments ]]
+]]
