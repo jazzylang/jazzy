@@ -71,6 +71,9 @@ pub enum ErrorType {
     IllegalImplicitCastError,
     IncompatibleTypesError,
     OverflowError,
+    UnexpectedTokenError,
+    UnrecognizedIdentifierError,
+    MultipleAssignmentError,
 }
 
 impl ErrorType {
@@ -99,6 +102,9 @@ impl ErrorType {
             ErrorType::IllegalImplicitCastError => format!("[E0010] {}", self.description()),
             ErrorType::IncompatibleTypesError => format!("[E0011] {}", self.description()),
             ErrorType::OverflowError => format!("[E0012] {}", self.description()),
+            ErrorType::UnexpectedTokenError => format!("[E0013] {}", self.description()),
+            ErrorType::UnrecognizedIdentifierError => format!("[E0014] {}", self.description()),
+            ErrorType::MultipleAssignmentError => format!("[E0015] {}", self.description()),
         }
     }
 
@@ -121,6 +127,11 @@ impl ErrorType {
             ErrorType::IllegalImplicitCastError => String::from("Illegal implicit cast"),
             ErrorType::IncompatibleTypesError => String::from("Incompatible types"),
             ErrorType::OverflowError => String::from("Integer overflow"),
+            ErrorType::UnexpectedTokenError => String::from("Unexpected token"),
+            ErrorType::UnrecognizedIdentifierError => String::from("Unrecognized identifier"),
+            ErrorType::MultipleAssignmentError => {
+                String::from("Multiple assignments to immutable variable")
+            }
         }
     }
 }
@@ -233,6 +244,8 @@ impl ConsoleErrorReporter {
         self.has_error = false;
         self.error_num = 0;
         self.warning_num = 0;
+        self.errors_reported = vec![];
+        self.warnings_reported = vec![];
     }
 
     fn report(&mut self, error_type: ErrorType, messages: Vec<ErrorMessage>, hint: Option<String>) {

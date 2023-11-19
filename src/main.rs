@@ -22,13 +22,16 @@
  * SOFTWARE.
  */
 
+use std::collections::HashMap;
 use std::env;
 use std::process::exit;
 
 use clap::Parser as ArgParser;
 use colored::Colorize;
+use interpreter::interpreter_data::Value;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use semantic_checker::semantic_checker_data::SymbolTable;
 
 pub mod infrastructure;
 pub mod interpreter;
@@ -84,8 +87,17 @@ fn main() {
         10,
     );
 
+    // Determine whether we're in REPL mode or file mode
+    let repl_mode;
+    if args.filename == None {
+        repl_mode = false;
+    } else {
+        repl_mode = true;
+    }
+
     // Instantiate the compiler
     let mut jazzy = Jazzy::new(
+        repl_mode,
         args.logfile,
         ErrorReporter::ConsoleErrorReporter(console_error),
         args.emit_ast,
@@ -102,19 +114,32 @@ fn main() {
 
 // This is the compiler!
 pub struct Jazzy {
+    _repl_mode: bool,
     location_info: LocationInfo,
     logger: Logger,
     error: ErrorReporter,
     emit_ast: bool,
+    variables: HashMap<String, Value>,
+    ast: AST,
+    symbol_table: SymbolTable,
 }
 
 impl Jazzy {
-    pub fn new(log_file: Option<String>, error: ErrorReporter, emit_ast: bool) -> Jazzy {
+    pub fn new(
+        _repl_mode: bool,
+        log_file: Option<String>,
+        error: ErrorReporter,
+        emit_ast: bool,
+    ) -> Jazzy {
         return Jazzy {
+            _repl_mode,
             location_info: LocationInfo::new(),
             logger: Logger::new(log_file),
             error,
             emit_ast,
+            variables: HashMap::new(),
+            ast: AST::new(),
+            symbol_table: SymbolTable::new(),
         };
     }
 
@@ -189,6 +214,10 @@ impl Jazzy {
 
     // Take a vector of characters and run the compiler on it
     fn run(&mut self, chars: Vec<String>) {
+        // Get the previous size of the AST,
+        // so we can know if we've added to it
+        let old_ast_size = self.ast.len();
+
         // Instantiate the scanner, passing in the vector and the error reporter
         let mut scanner = Scanner::new(
             chars,
@@ -205,24 +234,27 @@ impl Jazzy {
             return;
         }
 
-        let mut ast = AST::new();
-        let mut parser = Parser::new(tokens, &mut ast, &mut self.logger, &mut self.error);
-        let root_pointer = parser.parse();
+        let mut parser = Parser::new(tokens, &mut self.ast, &mut self.logger, &mut self.error);
+        parser.parse();
 
-        // If our AST only consists of a single RootNode, return to the REPL
-        if ast.len() == 1 {
+        // If we haven't added any nodes to our AST, return to the REPL
+        if self.ast.len() == old_ast_size {
             return;
         }
 
-        let mut semantic_checker =
-            SemanticChecker::new(&mut ast, &mut self.logger, &mut self.error);
-        semantic_checker.check(root_pointer);
+        let mut semantic_checker = SemanticChecker::new(
+            &mut self.ast,
+            &mut self.symbol_table,
+            &mut self.logger,
+            &mut self.error,
+        );
+        semantic_checker.check();
 
-        let root_node = ast.get_node(root_pointer);
+        let root_node = self.ast.get_root_node();
         // If the user just wants to emit the AST,
         // pretty-print it and then return to the REPL
         if self.emit_ast {
-            println!("{}", root_node.to_string(&ast));
+            println!("{}", root_node.to_string(&self.ast));
             // Return to the REPL
             return;
         }
@@ -262,8 +294,13 @@ impl Jazzy {
         }
 
         // We didn't have any compiler errors, so run the interpreter
-        let mut interpreter = Interpreter::new(&mut ast, &mut self.logger, &mut self.error);
-        interpreter.run(root_pointer);
+        let mut interpreter = Interpreter::new(
+            &mut self.ast,
+            &mut self.variables,
+            &mut self.logger,
+            &mut self.error,
+        );
+        interpreter.run();
     }
 
     // Print the header that is displayed when the REPL is first run

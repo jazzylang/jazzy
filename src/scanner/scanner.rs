@@ -213,20 +213,8 @@ impl Scanner<'_> {
                     if self.check("=") {
                         self.add_token(TokenType::Equal);
                     } else {
-                        let error_type = ErrorType::UnrecognizedTokenError;
-
-                        self.error.report(
-                            error_type,
-                            vec![ErrorMessage::new(
-                                Some(format!(
-                                    "{} \"{}\"",
-                                    error_type.description(),
-                                    self.get_lexeme()
-                                )),
-                                &self.new_location_info(1),
-                            )],
-                            Some(String::from("Did you mean \":=\" or \"==\"?")),
-                        );
+                        // This is probably intended to be := or ==
+                        self.add_token(TokenType::BadAssign);
                     }
                 } else if g == "<" {
                     // If the next grapheme is an equals sign, we have a <= token
@@ -307,13 +295,13 @@ impl Scanner<'_> {
                 self.error.warn(
                     WarningType::SnakeCaseIdentifierWarning,
                     vec![ErrorMessage::new(
-                        Some(format!(
-                            "Consider renaming this identifier to \"{}\"",
-                            self.snake_to_kebab(id_lexeme)
-                        )),
+                        None,    
                         &self.new_location_info(self.get_length()),
                     )],
-                    None,
+                    Some(format!(
+                        "Consider renaming this identifier to \"{}\"",
+                        self.snake_to_kebab(id_lexeme)
+                    )),
                 );
             }
             self.add_token(TokenType::ID);
@@ -354,8 +342,15 @@ impl Scanner<'_> {
         self.keywords.insert(String::from("i32"), TokenType::I32);
         self.keywords.insert(String::from("i64"), TokenType::I64);
         self.keywords.insert(String::from("i128"), TokenType::I128);
+        self.keywords.insert(String::from("u8"), TokenType::U8);
+        self.keywords.insert(String::from("u16"), TokenType::U16);
+        self.keywords.insert(String::from("u32"), TokenType::U32);
+        self.keywords.insert(String::from("u64"), TokenType::U64);
+        self.keywords.insert(String::from("u128"), TokenType::U128);
         self.keywords.insert(String::from("f32"), TokenType::F32);
         self.keywords.insert(String::from("f64"), TokenType::F64);
+        self.keywords.insert(String::from("bool"), TokenType::Bool);
+        self.keywords.insert(String::from("str"), TokenType::Str);
         self.keywords.insert(String::from("true"), TokenType::True);
         self.keywords
             .insert(String::from("false"), TokenType::False);
@@ -485,12 +480,12 @@ impl Scanner<'_> {
             self.error.report(
                 ErrorType::MalformedHexLiteralError,
                 vec![ErrorMessage::new(
-                    Some(String::from(
-                        "Try including at least one hex digit (0-9 or A-F) after the \"0x\"",
-                    )),
+                    None,
                     &self.new_location_info(self.get_length()),
                 )],
-                None,
+                Some(String::from(
+                    "Try including at least one hex digit (0-9 or A-F) after the \"0x\"",
+                )),
             );
         }
     }
@@ -527,12 +522,12 @@ impl Scanner<'_> {
             self.error.report(
                 ErrorType::MalformedBinaryLiteralError,
                 vec![ErrorMessage::new(
-                    Some(String::from(
-                        "Try including at least one binary digit (0 or 1) after the \"0b\"",
-                    )),
+                    None,
                     &self.new_location_info(self.get_length()),
                 )],
-                None,
+                Some(String::from(
+                    "Try including at least one binary digit (0 or 1) after the \"0b\"",
+                )),
             );
         }
     }
@@ -558,12 +553,12 @@ impl Scanner<'_> {
                                     self.error.report(
                                         ErrorType::MalformedSciNotationLiteralError,
                                         vec![ErrorMessage::new(
-                                            Some(String::from(
-                                                "Try including a positive or negative integer (e.g. 2 or -50) after the \"e\"",
-                                            )),
+                                            None,    
                                             &self.new_location_info(self.get_length()),
                                         )],
-                                        None,
+                                        Some(String::from(
+                                            "Try including a positive or negative integer (e.g. 2 or -50) after the \"e\"",
+                                        )),
                                     );
                                 }
                                 Some(next) => {
@@ -574,12 +569,12 @@ impl Scanner<'_> {
                                         self.error.report(
                                             ErrorType::MalformedSciNotationLiteralError,
                                             vec![ErrorMessage::new(
-                                                Some(String::from(
-                                                    "Try including a positive or negative integer (e.g. 2 or -50) after the \"e\"",
-                                                )),
+                                                None,    
                                                 &self.new_location_info(self.get_length()),
                                             )],
-                                            None,
+                                            Some(String::from(
+                                                "Try including a positive or negative integer (e.g. 2 or -50) after the \"e\"",
+                                            )),
                                         );
                                     }
                                 }
@@ -622,7 +617,7 @@ impl Scanner<'_> {
                         ErrorType::NonTerminatedStringError,
                         vec![
                             ErrorMessage::new(
-                                Some(String::from("Expected '\"'")),
+                                Some(String::from("Expected \"")),
                                 &new_location_info,
                             ),
                             ErrorMessage::new(
@@ -630,7 +625,7 @@ impl Scanner<'_> {
                                 &self.new_location_info(1),
                             ),
                         ],
-                        Some(String::from("Try closing the string with another '\"'")),
+                        Some(String::from("Try closing the string with another \"")),
                     );
 
                     self.retreat();
@@ -657,7 +652,7 @@ impl Scanner<'_> {
                                         ErrorType::NonTerminatedStringError,
                                         vec![
                                             ErrorMessage::new(
-                                                Some(String::from("Expected '\"'")),
+                                                Some(String::from("Expected \"")),
                                                 &new_location_info,
                                             ),
                                             ErrorMessage::new(
@@ -666,7 +661,7 @@ impl Scanner<'_> {
                                             ),
                                         ],
                                         Some(String::from(
-                                            "Try closing the string with another '\"'",
+                                            "Try closing the string with another \"",
                                         )),
                                     );
 

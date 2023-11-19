@@ -22,6 +22,8 @@
  * SOFTWARE.
  */
 
+use std::collections::HashMap;
+
 use crate::{
     infrastructure::{
         error::{ErrorMessage, ErrorReporter, ErrorType},
@@ -30,7 +32,7 @@ use crate::{
     interpreter::interpreter_data::LiteralVal,
     parser::parser_data::{
         ASTNode, BinaryExprNode, BinaryOperator, ExpressionNode, Literal, NodePointer,
-        UnaryOperator, AST,
+        StatementNode, UnaryOperator, AST,
     },
     semantic_checker::{
         semantic_checker::{is_i16, is_i32, is_i64, is_i8, is_u16, is_u32, is_u64, is_u8},
@@ -42,6 +44,7 @@ use super::interpreter_data::Value;
 
 pub struct Interpreter<'interpret> {
     pub ast: &'interpret mut AST,
+    pub variables: &'interpret mut HashMap<String, Value>,
     pub logger: &'interpret mut Logger,
     pub error: &'interpret mut ErrorReporter,
 }
@@ -49,36 +52,53 @@ pub struct Interpreter<'interpret> {
 impl Interpreter<'_> {
     pub fn new<'interpret>(
         ast: &'interpret mut AST,
+        variables: &'interpret mut HashMap<String, Value>,
         logger: &'interpret mut Logger,
         error: &'interpret mut ErrorReporter,
     ) -> Interpreter<'interpret> {
-        return Interpreter { ast, logger, error };
+        return Interpreter {
+            ast,
+            variables,
+            logger,
+            error,
+        };
     }
 
-    pub fn run(&mut self, node: NodePointer) {
+    pub fn run(&mut self) {
         self.logger.log("");
         self.logger.log("--------------------");
         self.logger.log("BEGIN Interpretation");
         self.logger.log("--------------------");
 
-        self.interpret_node(node);
+        self.interpret_node(self.ast.root_node);
     }
 
     pub fn interpret_node(&mut self, node: NodePointer) {
         match self.ast.get_node(node) {
-            ASTNode::RootNode(node) => {
-                // The child of the root node is an expression,
-                // so evaluate it and print the result
-                let value = self.evaluate_expression(node.expression);
-                match value {
-                    Value::LiteralVal(literal) => match literal {
-                        LiteralVal::Int(int_val) => println!("{}", int_val),
-                        LiteralVal::Float(float_val) => println!("{}", float_val),
-                        LiteralVal::Bool(bool_val) => println!("{}", bool_val),
-                        LiteralVal::String(string_val) => println!("{}", string_val),
-                    },
+            ASTNode::RootNode(_) => {
+                // Loop through any constructs that have been added since the last run
+                // (only relevant for REPL)
+                let new_children = self.ast.get_new_children();
+                let mut construct_index = 0;
+                let num_constructs = new_children.len();
+
+                for construct in self.ast.get_new_children() {
+                    match self.ast.get_node(construct) {
+                        ASTNode::ExpressionNode(_) => {
+                            // Only bother evaluating top level expressions if they're the last one
+                            if construct_index == num_constructs - 1 {
+                                let value = self.evaluate_expression(construct);
+                                println!("{}\n", value);
+                            }
+                        }
+                        ASTNode::StatementNode(_) => {
+                            self.interpret_statement(construct);
+                        }
+                        _node => panic!("Root node can only have a list of expressions and/or statements, but got {:?}", _node),
+                    }
+
+                    construct_index += 1;
                 }
-                println!(""); // Extra newline
             }
             _ => todo!("Do all the other ones!!"),
         }
@@ -177,10 +197,17 @@ impl Interpreter<'_> {
                             },
                         }
                     }
+                    ExpressionNode::Variable(var) => match self.variables.get(&var.name) {
+                        Some(val) => return val.clone(),
+                        None => panic!("Should have already caught unrecognized identifier error"),
+                    },
                 }
             }
             ASTNode::RootNode(_) => panic!("interpret_expression called on RootNode"),
             ASTNode::NotANode(_) => panic!("interpret_expression called on NotANode"),
+            ASTNode::StatementNode(_) => panic!("interpret_expression called on StatementNode"),
+            ASTNode::IdentifierNode(_) => panic!("interpret_expression called on StatementNode"),
+            ASTNode::TypeHintNode(_) => panic!("interpret_expression called on TypeHintNode"),
         }
     }
 
@@ -670,6 +697,26 @@ impl Interpreter<'_> {
                     }
                 }
             }
+        }
+    }
+
+    pub fn interpret_statement(&mut self, node: NodePointer) {
+        match self.ast.get_mut_node(node) {
+            ASTNode::StatementNode(stmt_node) => match stmt_node {
+                StatementNode::VariableDeclaration(var_node) => {
+                    let expression = var_node.expression;
+                    let variable_name = var_node.name.clone();
+                    let initial_value = self.evaluate_expression(expression);
+                    self.variables.insert(variable_name, initial_value);
+                }
+                StatementNode::VariableAssignment(assmt_node) => {
+                    let expression = assmt_node.expression;
+                    let variable_name = assmt_node.name.clone();
+                    let value = self.evaluate_expression(expression);
+                    self.variables.insert(variable_name, value);
+                }
+            },
+            _node => panic!("non-statement node {:?} in interpret_statement", _node),
         }
     }
 }

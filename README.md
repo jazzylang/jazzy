@@ -1,7 +1,9 @@
 # jazzy
 [![Rust](https://github.com/jazzylang/jazzy/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/jazzylang/jazzy/actions/workflows/rust-ci.yml)
 
-A modern statically typed programming language
+![Jazzy REPL header ASCII art](https://i.imgur.com/aG5ROKh.png)
+
+A better programming language (than my last one)
 
 ## Installation
 To install jazzy, clone the repository:
@@ -29,9 +31,11 @@ $ jazzy -h
 ```
 
 ## Features
-jazzy currently only supports expressions with number and boolean literals. To execute a jazzy expression, either type it out in the REPL and press enter:
-```bash
-=^..^= 1 + 1
+jazzy currently only supports collections of variable assignments and expressions on integers, floating-point numbers, and booleans. To execute a jazzy program, either type it out in the REPL one line at a time:
+
+```
+=^..^= let x := 1;
+=^..^= x + 1 
 2
 
 =^..^=
@@ -42,237 +46,64 @@ or create a `.jzy` file with a single expression in it:
 1 < 3 and 99 >= 100
 ```
 and invoke the compiler on it:
-```bash
+```
 $ jazzy expression.jzy
 false
 ```
 
-### Operators
-#### Addition (`+`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    Integer   |    Integer    | Integer |
-|     Float    |     Float     |  Float  |
-
-The addition operator takes two numbers and adds them together:
+### Variables
+Variables can be declared as such:
 ```
-=^..^= 1 + 2
-3
+let x := 1;
 ```
 
-#### Subtraction (`-`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    Integer   |    Integer    | Integer |
-|     Float    |     Float     |  Float  |
-
-The subtraction operator takes two numbers and subtracts them:
+The name of your variable is called an "identifier". The idiomatic style for jazzy variable identifiers is not snake case or camel case, like in a lot of common programming languages, but what many people call "kebab case":
 ```
-=^..^= 1 - 2
--1
+let some-variable := 3.14;
 ```
 
-#### Multiplication (`*`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    Integer   |    Integer    | Integer |
-|     Float    |     Float     |  Float  |
+An interesting consequence of this decision is that all of our binary operators (think +, -, etc) need to be surrounded by whitespace. Otherwise, we wouldn't know the difference between subtracting a variable `b` from a variable `a` and referencing a variable `a-b`!
 
-The multiplication operator takes two numbers and multiplies them together:
-```
-=^..^= 1 * 2
-2
-```
+Variables are immutable by default, meaning once you declare them, you cannot assign them a new value.
 
-#### Division (`/`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    Integer   |    Integer    | Integer |
-|     Float    |     Float     |  Float  |
+![Multiple assignments to immutable variable error](https://i.imgur.com/VkelC0c.png)
 
-The division operator takes two numbers, divides them, and returns the quotient:
+To declare a variable as mutable, allowing you to assign it a new value later, simply add a `mut` after the `let`:
 ```
-=^..^= 1 / 2
-0
-```
-NOTE: The output of the division operator depends on the type of its operands. If the operands are integers, the division operator performs integer division, which truncates the decimal quotient towards zero in order to return an integer. If the operands are floating-point numbers, the division operator does not alter the decimal quotient:
-```
-=^..^= 1.0 / 2.0
-0.5
+let mut x := 1;
+x := 2;
 ```
 
-#### Remainder (`%`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    Integer   |    Integer    | Integer |
-|     Float    |     Float     |  Float  |
-
-The remainder operator takes two numbers, divides them, and returns the remainder:
+There are lots of situations where the jazzy compiler can figure out what the type of your variable is by itself. However, if you run into a situation where it can't (or you just want to explicitly set it for readability), you can add a type hint:
 ```
-=^..^= 1 % 2
-1
-
-=^..^= 4 % 2
-0
+let x (i64) := 1;
 ```
 
-#### Boolean AND (`and`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    `bool`    |    `bool`     | `bool`  |
+### Types
 
-The boolean AND operator takes two booleans and produces a boolean representing whether both operands are `true`:
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    `true`    |     `true`    |  `true` |
-|    `true`    |    `false`    | `false` |
-|    `false`   |     `true`    | `false` |
-|    `false`   |    `false`    | `false` |
+Speaking of types, jazzy currently has three categories of them: booleans, integers, and floating-point numbers.
 
-```
-=^..^= true and true
-true
-```
+#### Booleans
+| Type | Description |
+|:----:|:-----------:|
+| bool |   Boolean   |
 
-#### Boolean OR (`or`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    `bool`    |    `bool`     | `bool`  |
-
-The boolean OR operator takes two booleans and produces a boolean representing whether either or both operands are `true`:
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    `true`    |    `true`     | `true`  |
-|    `true`    |    `false`    | `true`  |
-|    `false`   |    `true`     | `true`  |
-|    `false`   |    `false`    | `false` |
-
-```
-=^..^= true or false
-true
-```
-
-#### Less Than (`<`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    Integer   |    Integer    | `bool`  |
-|     Float    |     Float     | `bool`  |
-
-The less than operator takes two numbers and returns a boolean representing whether the first operand was less than the second:
-```
-=^..^= 1 < 2
-true
-
-=^..^= 1 < 1
-false
-```
-
-#### Less Than Or Equal To (`<=`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    Integer   |    Integer    | `bool`  |
-|     Float    |     Float     | `bool`  |
-
-The less than or equal to operator takes two numbers and returns a boolean representing whether the first operand was less than or equal to the second:
-```
-=^..^= 1 <= 2
-true
-
-=^..^= 1 <= 1
-true
-```
-
-#### Greater Than (`>`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    Integer   |    Integer    | `bool`  |
-|     Float    |     Float     | `bool`  |
-
-The greater than operator takes two numbers and returns a boolean representing whether the first operand was greater than the second:
-```
-=^..^= 2 > 1
-true
-
-=^..^= 1 > 1
-false
-```
-
-#### Greater Than Or Equal To (`>=`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|    Integer   |    Integer    | `bool`  |
-|     Float    |     Float     | `bool`  |
-
-The greater than or equal to operator takes two numbers and returns a boolean representing whether the first operand was greater than or equal to the second:
-```
-=^..^= 2 >= 1
-true
-
-=^..^= 1 >= 1
-true
-```
-
-#### Equal To (`==`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|       A      |       A       | `bool`  |
-
-The equal to operator takes two values **of the same type** and returns a boolean representing whether they have the same value:
-```
-=^..^= 1 == 1
-true
-
-=^..^= 1 == 2
-false
-```
-
-#### Not Equal To (`!=`)
-| Left Operand | Right Operand |  Output |
-|:------------:|:-------------:|:-------:|
-|       A      |       A       | `bool`  |
-
-The not equal to operator takes two values **of the same type** and returns a boolean representing whether they do not have the same value:
-```
-=^..^= 1 != 1
-false
-
-=^..^= 1 != 2
-true
-```
-
-#### Unary Minus (`-`)
-| Operand |  Output |
-|:-------:|:-------:|
-| Integer | Integer |
-|  Float  |  Float  |
-
-The unary minus operator takes a single number and returns the negated value of that number:
-```
-=^..^= -1
--1
-
-=^..^= --1
-1
-```
-
-#### Unary Boolean NOT (`not`)
-| Operand |  Output |
-|:-------:|:-------:|
-| `bool`  | `bool`  |
-
-The unary boolean NOT operator takes a single boolean and returns the negated value of that boolean:
-```
-=^..^= not true
-false
-
-=^..^= not not true
-true
-```
-
-### Literals
-There are four kinds of literal values you can use in jazzy expressions:
+There are two boolean literals: `true` and `false`.
 
 #### Integers
+| Type |       Description        |
+|:----:|:------------------------:|
+| i8   |  Signed 8-bit integer    |
+| i16  |  Signed 16-bit integer   |
+| i32  |  Signed 32-bit integer   |
+| i64  |  Signed 64-bit integer   |
+| i128 |  Signed 128-bit integer  |
+| u8   | Unsigned 8-bit integer   |
+| u16  | Unsigned 16-bit integer  |
+| u32  | Unsigned 32-bit integer  |
+| u64  | Unsigned 64-bit integer  |
+| u128 | Unsigned 128-bit integer |
+
 Integer literal values can be represented in three bases:
 ```c
 // Base 10 (decimal)
@@ -292,7 +123,12 @@ Underscores can also be placed anywhere within the integer literal value (except
 1
 ```
 
-#### Floating-Point Numbers
+#### Floating point numbers
+| Type | Description  |
+|:----:|:------------:|
+| f32  | 32-bit float |
+| f64  | 64-bit float |
+
 Floating-point literal values can be represented in two ways:
 ```c
 // Traditional
@@ -310,9 +146,6 @@ Underscores can also be placed anywhere within the floating-point literal value 
 =^..^= 3_._14e1_0
 31400000000
 ```
-
-#### Boolean
-There are two boolean literal values, `true` and `false`.
 
 ### Comments
 Comments can be used to explain your code, and are ignored by the compiler, so they have no effect on how your code runs. There are two types of comments:

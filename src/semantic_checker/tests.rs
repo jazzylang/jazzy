@@ -24,7 +24,7 @@
 
 use crate::{
     infrastructure::{
-        error::{ConsoleErrorReporter, ErrorReporter, ErrorType},
+        error::{ConsoleErrorReporter, ErrorReporter},
         file::LocationInfo,
         log::Logger,
     },
@@ -33,98 +33,75 @@ use crate::{
         UnaryExprNode, UnaryOperator, AST,
     },
     scanner::scanner_data::{Token, TokenType},
-    semantic_checker::semantic_checker_data::{DataType, Primitive, Type},
+    semantic_checker::semantic_checker_data::{DataType, Primitive, SymbolTable, Type},
 };
 
-use super::semantic_checker::SemanticChecker;
+use super::semantic_checker::*;
 
 #[test]
 pub fn test_type_check_literal() {
-    let mut ast = AST::new();
-
-    let mut logger = Logger::new(None);
-    let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
-        false, false, false, false, 0,
-    ));
-
-    let mut semantic_checker = SemanticChecker::new(&mut ast, &mut logger, &mut error);
-
-    let int_literal_type = semantic_checker.type_check_literal(&mut LiteralNode::new(
+    let int_literal_type = type_check_literal(&mut LiteralNode::new(
         Literal::Int(1),
         generate_generic_token(),
     ));
 
     assert_eq!(
         int_literal_type,
-        DataType::new(
-            Type::Primitive(Primitive::CompileTimeInt),
-            Type::Primitive(Primitive::CompileTimeInt).get_label()
-        )
+        DataType::new(Type::Primitive(Primitive::CompileTimeInt),)
     );
 
-    let float_literal_type = semantic_checker.type_check_literal(&mut LiteralNode::new(
+    let float_literal_type = type_check_literal(&mut LiteralNode::new(
         Literal::Float(3.14),
         generate_generic_token(),
     ));
 
     assert_eq!(
         float_literal_type,
-        DataType::new(
-            Type::Primitive(Primitive::CompileTimeFloat),
-            Type::Primitive(Primitive::CompileTimeFloat).get_label()
-        )
+        DataType::new(Type::Primitive(Primitive::CompileTimeFloat),)
     );
 
-    let true_literal_type = semantic_checker.type_check_literal(&mut LiteralNode::new(
+    let true_literal_type = type_check_literal(&mut LiteralNode::new(
         Literal::True(true),
         generate_generic_token(),
     ));
 
     assert_eq!(
         true_literal_type,
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
-        )
+        DataType::new(Type::Primitive(Primitive::Bool),)
     );
 
-    let false_literal_type = semantic_checker.type_check_literal(&mut LiteralNode::new(
+    let false_literal_type = type_check_literal(&mut LiteralNode::new(
         Literal::False(false),
         generate_generic_token(),
     ));
 
     assert_eq!(
         false_literal_type,
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
-        )
+        DataType::new(Type::Primitive(Primitive::Bool),)
     );
 
-    let string_literal_type = semantic_checker.type_check_literal(&mut LiteralNode::new(
+    let string_literal_type = type_check_literal(&mut LiteralNode::new(
         Literal::String(String::from("test string")),
         generate_generic_token(),
     ));
 
     assert_eq!(
         string_literal_type,
-        DataType::new(
-            Type::Primitive(Primitive::String),
-            Type::Primitive(Primitive::String).get_label()
-        )
+        DataType::new(Type::Primitive(Primitive::String),)
     );
 }
 
 #[test]
 pub fn test_type_check_arithmetic_binary_expr() {
     let mut ast = AST::new();
-
+    let mut symbol_table = SymbolTable::new();
     let mut logger = Logger::new(None);
     let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
         false, false, false, false, 0,
     ));
 
-    let mut semantic_checker = SemanticChecker::new(&mut ast, &mut logger, &mut error);
+    let semantic_checker =
+        SemanticChecker::new(&mut ast, &mut symbol_table, &mut logger, &mut error);
 
     // -------------------------------
     // Setting up operands (can reuse)
@@ -136,93 +113,104 @@ pub fn test_type_check_arithmetic_binary_expr() {
     // PLUS
     // ----
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::CompileTimeInt),
-            Type::Primitive(Primitive::CompileTimeInt).get_label()
+        DataType::new(Type::Primitive(Primitive::CompileTimeInt)),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::Plus,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::Plus,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 
     // -----
     // MINUS
     // -----
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::CompileTimeInt),
-            Type::Primitive(Primitive::CompileTimeInt).get_label()
+        DataType::new(Type::Primitive(Primitive::CompileTimeInt),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::Minus,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::Minus,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 
     // -----
     // TIMES
     // -----
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::CompileTimeInt),
-            Type::Primitive(Primitive::CompileTimeInt).get_label()
+        DataType::new(Type::Primitive(Primitive::CompileTimeInt),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::Times,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::Times,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 
     // ------
     // DIVIDE
     // ------
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::CompileTimeInt),
-            Type::Primitive(Primitive::CompileTimeInt).get_label()
+        DataType::new(Type::Primitive(Primitive::CompileTimeInt),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::Divide,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::Divide,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 
     // -------
     // MODULUS
     // -------
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::CompileTimeInt),
-            Type::Primitive(Primitive::CompileTimeInt).get_label()
+        DataType::new(Type::Primitive(Primitive::CompileTimeInt),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::Modulus,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::Modulus,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 }
 
 #[test]
 pub fn test_type_check_boolean_binary_expr() {
     let mut ast = AST::new();
-
+    let mut symbol_table = SymbolTable::new();
     let mut logger = Logger::new(None);
     let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
         false, false, false, false, 0,
     ));
 
-    let mut semantic_checker = SemanticChecker::new(&mut ast, &mut logger, &mut error);
+    let semantic_checker =
+        SemanticChecker::new(&mut ast, &mut symbol_table, &mut logger, &mut error);
 
     // -------------------------------
     // Setting up operands (can reuse)
@@ -234,45 +222,50 @@ pub fn test_type_check_boolean_binary_expr() {
     // AND
     // ---
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
+        DataType::new(Type::Primitive(Primitive::Bool),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::And,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::And,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 
     // --
     // OR
     // --
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
-        ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::Or,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        ))
+        DataType::new(Type::Primitive(Primitive::Bool),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::Or,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
+        )
     );
 }
 
 #[test]
 pub fn test_type_check_comparison_binary_expr() {
     let mut ast = AST::new();
-
+    let mut symbol_table = SymbolTable::new();
     let mut logger = Logger::new(None);
     let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
         false, false, false, false, 0,
     ));
 
-    let mut semantic_checker = SemanticChecker::new(&mut ast, &mut logger, &mut error);
+    let semantic_checker =
+        SemanticChecker::new(&mut ast, &mut symbol_table, &mut logger, &mut error);
 
     // -------------------------------
     // Setting up operands (can reuse)
@@ -284,77 +277,86 @@ pub fn test_type_check_comparison_binary_expr() {
     // LESS THAN
     // ---------
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
+        DataType::new(Type::Primitive(Primitive::Bool),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::LessThan,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::LessThan,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 
     // ------------------
     // LESS THAN OR EQUAL
     // ------------------
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
+        DataType::new(Type::Primitive(Primitive::Bool),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::LessThanOrEqual,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::LessThanOrEqual,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 
     // ------------
     // GREATER THAN
     // ------------
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
+        DataType::new(Type::Primitive(Primitive::Bool),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::GreaterThan,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::GreaterThan,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 
     // ---------------------
     // GREATER THAN OR EQUAL
     // ---------------------
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
+        DataType::new(Type::Primitive(Primitive::Bool),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::GreaterThanOrEqual,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::GreaterThanOrEqual,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 }
 
 #[test]
 pub fn test_type_check_equality_binary_expr() {
     let mut ast = AST::new();
-
+    let mut symbol_table = SymbolTable::new();
     let mut logger = Logger::new(None);
     let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
         false, false, false, false, 0,
     ));
 
-    let mut semantic_checker = SemanticChecker::new(&mut ast, &mut logger, &mut error);
+    let semantic_checker =
+        SemanticChecker::new(&mut ast, &mut symbol_table, &mut logger, &mut error);
 
     // -------------------------------
     // Setting up operands (can reuse)
@@ -366,45 +368,50 @@ pub fn test_type_check_equality_binary_expr() {
     // EQUAL
     // -----
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
+        DataType::new(Type::Primitive(Primitive::Bool),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::Equal,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::Equal,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 
     // ---------
     // NOT EQUAL
     // ---------
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
+        DataType::new(Type::Primitive(Primitive::Bool),),
+        type_check_binary(
+            &mut BinaryExprNode::new(
+                BinaryOperator::NotEqual,
+                generate_generic_token(),
+                left_pointer,
+                right_pointer,
+            ),
+            &mut ast,
+            &mut error,
+            &mut logger,
         ),
-        semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-            BinaryOperator::NotEqual,
-            generate_generic_token(),
-            left_pointer,
-            right_pointer,
-        )),
     );
 }
 
 #[test]
 pub fn test_type_check_unary_expr() {
     let mut ast = AST::new();
-
+    let mut symbol_table = SymbolTable::new();
     let mut logger = Logger::new(None);
     let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
         false, false, false, false, 0,
     ));
 
-    let mut semantic_checker = SemanticChecker::new(&mut ast, &mut logger, &mut error);
+    let semantic_checker =
+        SemanticChecker::new(&mut ast, &mut symbol_table, &mut logger, &mut error);
 
     // -------------------
     // Setting up operands
@@ -416,189 +423,25 @@ pub fn test_type_check_unary_expr() {
     // MINUS
     // -----
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::CompileTimeInt),
-            Type::Primitive(Primitive::CompileTimeInt).get_label()
+        DataType::new(Type::Primitive(Primitive::CompileTimeInt),),
+        type_check_unary(
+            &mut UnaryExprNode::new(UnaryOperator::Minus, generate_generic_token(), int_pointer),
+            &mut ast,
+            &mut error,
         ),
-        semantic_checker.type_check_unary(&mut UnaryExprNode::new(
-            UnaryOperator::Minus,
-            generate_generic_token(),
-            int_pointer
-        )),
     );
 
     // ---
     // NOT
     // ---
     assert_eq!(
-        DataType::new(
-            Type::Primitive(Primitive::Bool),
-            Type::Primitive(Primitive::Bool).get_label()
+        DataType::new(Type::Primitive(Primitive::Bool),),
+        type_check_unary(
+            &mut UnaryExprNode::new(UnaryOperator::Not, generate_generic_token(), bool_pointer),
+            &mut ast,
+            &mut error,
         ),
-        semantic_checker.type_check_unary(&mut UnaryExprNode::new(
-            UnaryOperator::Not,
-            generate_generic_token(),
-            bool_pointer
-        )),
     );
-}
-
-#[test]
-pub fn test_error_type_check_binary_expr() {
-    let mut ast = AST::new();
-
-    let mut logger = Logger::new(None);
-    let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
-        false, false, false, false, 0,
-    ));
-
-    let mut semantic_checker = SemanticChecker::new(&mut ast, &mut logger, &mut error);
-
-    // -------------------------------------------------
-    // ERROR 1: Boolean operands in arithmetic operators
-    // -------------------------------------------------
-    let mut left_pointer = generate_literal_operand(semantic_checker.ast, Literal::True(true));
-    let mut right_pointer = generate_literal_operand(semantic_checker.ast, Literal::False(false));
-
-    semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-        BinaryOperator::Plus,
-        generate_generic_token(),
-        left_pointer,
-        right_pointer,
-    ));
-
-    match semantic_checker.error {
-        ErrorReporter::ConsoleErrorReporter(console_error) => {
-            assert_eq!(
-                true,
-                console_error.error_was_reported(&ErrorType::IncompatibleTypesError)
-            );
-            console_error.clear_for_next_execution();
-        }
-    }
-
-    // -------------------------------------------------
-    // ERROR 2: Boolean operands in comparison operators
-    // -------------------------------------------------
-    left_pointer = generate_literal_operand(semantic_checker.ast, Literal::True(true));
-    right_pointer = generate_literal_operand(semantic_checker.ast, Literal::False(false));
-
-    semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-        BinaryOperator::LessThan,
-        generate_generic_token(),
-        left_pointer,
-        right_pointer,
-    ));
-
-    match semantic_checker.error {
-        ErrorReporter::ConsoleErrorReporter(console_error) => {
-            assert_eq!(
-                true,
-                console_error.error_was_reported(&ErrorType::IncompatibleTypesError)
-            );
-            console_error.clear_for_next_execution();
-        }
-    }
-
-    // ---------------------------------------------
-    // ERROR 3: Number operands in boolean operators
-    // ---------------------------------------------
-    left_pointer = generate_literal_operand(semantic_checker.ast, Literal::Int(1));
-    right_pointer = generate_literal_operand(semantic_checker.ast, Literal::Int(2));
-
-    semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-        BinaryOperator::And,
-        generate_generic_token(),
-        left_pointer,
-        right_pointer,
-    ));
-
-    match semantic_checker.error {
-        ErrorReporter::ConsoleErrorReporter(console_error) => {
-            assert_eq!(
-                true,
-                console_error.error_was_reported(&ErrorType::IncompatibleTypesError)
-            );
-            console_error.clear_for_next_execution();
-        }
-    }
-
-    // ---------------------------------------------------------
-    // ERROR 4: Differently-typed operands in equality operators
-    // ---------------------------------------------------------
-    left_pointer = generate_literal_operand(semantic_checker.ast, Literal::True(true));
-    right_pointer = generate_literal_operand(semantic_checker.ast, Literal::Int(1));
-
-    semantic_checker.type_check_binary(&mut BinaryExprNode::new(
-        BinaryOperator::Equal,
-        generate_generic_token(),
-        left_pointer,
-        right_pointer,
-    ));
-
-    match semantic_checker.error {
-        ErrorReporter::ConsoleErrorReporter(console_error) => {
-            assert_eq!(
-                true,
-                console_error.error_was_reported(&ErrorType::IncompatibleTypesError)
-            );
-            console_error.clear_for_next_execution();
-        }
-    }
-}
-
-#[test]
-pub fn test_error_type_check_unary_expr() {
-    let mut ast = AST::new();
-
-    let mut logger = Logger::new(None);
-    let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
-        false, false, false, false, 0,
-    ));
-
-    let mut semantic_checker = SemanticChecker::new(&mut ast, &mut logger, &mut error);
-
-    // -----------------------------------------------
-    // ERROR 1: Boolean operand in arithmetic operator
-    // -----------------------------------------------
-    let mut operand_pointer = generate_literal_operand(semantic_checker.ast, Literal::True(true));
-
-    semantic_checker.type_check_unary(&mut UnaryExprNode::new(
-        UnaryOperator::Minus,
-        generate_generic_token(),
-        operand_pointer,
-    ));
-
-    match semantic_checker.error {
-        ErrorReporter::ConsoleErrorReporter(console_error) => {
-            assert_eq!(
-                true,
-                console_error.error_was_reported(&ErrorType::IncompatibleTypesError)
-            );
-            console_error.clear_for_next_execution();
-        }
-    }
-
-    // -------------------------------------------
-    // ERROR 2: Number operand in boolean operator
-    // -------------------------------------------
-    operand_pointer = generate_literal_operand(semantic_checker.ast, Literal::Int(1));
-
-    semantic_checker.type_check_unary(&mut UnaryExprNode::new(
-        UnaryOperator::Not,
-        generate_generic_token(),
-        operand_pointer,
-    ));
-
-    match semantic_checker.error {
-        ErrorReporter::ConsoleErrorReporter(console_error) => {
-            assert_eq!(
-                true,
-                console_error.error_was_reported(&ErrorType::IncompatibleTypesError)
-            );
-            console_error.clear_for_next_execution();
-        }
-    }
 }
 
 pub fn generate_literal_operand(ast: &mut AST, val: Literal) -> NodePointer {
@@ -607,24 +450,18 @@ pub fn generate_literal_operand(ast: &mut AST, val: Literal) -> NodePointer {
     )));
 
     match val {
-        Literal::Int(_) => ast.get_mut_node(operand_pointer).set_type(DataType::new(
-            Type::Primitive(Primitive::CompileTimeInt),
-            Type::Primitive(Primitive::CompileTimeInt).get_label(),
-        )),
-        Literal::Float(_) => ast.get_mut_node(operand_pointer).set_type(DataType::new(
-            Type::Primitive(Primitive::CompileTimeFloat),
-            Type::Primitive(Primitive::CompileTimeFloat).get_label(),
-        )),
-        Literal::True(_) | Literal::False(_) => {
-            ast.get_mut_node(operand_pointer).set_type(DataType::new(
-                Type::Primitive(Primitive::Bool),
-                Type::Primitive(Primitive::Bool).get_label(),
-            ))
-        }
-        Literal::String(_) => ast.get_mut_node(operand_pointer).set_type(DataType::new(
-            Type::Primitive(Primitive::String),
-            Type::Primitive(Primitive::String).get_label(),
-        )),
+        Literal::Int(_) => ast
+            .get_mut_node(operand_pointer)
+            .set_type(DataType::new(Type::Primitive(Primitive::CompileTimeInt))),
+        Literal::Float(_) => ast
+            .get_mut_node(operand_pointer)
+            .set_type(DataType::new(Type::Primitive(Primitive::CompileTimeFloat))),
+        Literal::True(_) | Literal::False(_) => ast
+            .get_mut_node(operand_pointer)
+            .set_type(DataType::new(Type::Primitive(Primitive::Bool))),
+        Literal::String(_) => ast
+            .get_mut_node(operand_pointer)
+            .set_type(DataType::new(Type::Primitive(Primitive::String))),
     }
 
     return operand_pointer;
