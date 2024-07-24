@@ -25,192 +25,393 @@
 use crate::infrastructure::error::{ErrorMessage, ErrorReporter, ErrorType};
 use crate::infrastructure::log::Logger;
 use crate::parser::parser_data::{
-    ASTNode, BinaryExprNode, BinaryOperator, ExpressionNode, Literal, LiteralNode, NodePointer,
-    UnaryExprNode, UnaryOperator, AST,
+    traverse, ASTNode, BinaryExprNode, BinaryOperator, ExpressionNode, Literal, LiteralNode,
+    NodePointer, StatementNode, Traversal, UnaryExprNode, UnaryOperator, VariableAssignmentNode,
+    VariableDeclarationNode, AST,
 };
 use crate::semantic_checker::semantic_checker_data::{DataType, Type};
 
-use super::semantic_checker_data::{CanCast, Primitive, PrimitiveClass};
+use super::semantic_checker_data::{
+    Callback, GlobalDeclarations, IdentifiersPost, IdentifiersPre, MiscellaneousChecks, Primitive,
+    PrimitiveClass, Symbol, SymbolTable, TypeChecking, VariableSymbol,
+};
 
 pub struct SemanticChecker<'semantic> {
     pub ast: &'semantic mut AST,
+    pub symbol_table: &'semantic mut SymbolTable,
     pub logger: &'semantic mut Logger,
     pub error: &'semantic mut ErrorReporter,
 }
 
-impl SemanticChecker<'_> {
-    pub fn new<'semantic>(
-        ast: &'semantic mut AST,
-        logger: &'semantic mut Logger,
-        error: &'semantic mut ErrorReporter,
-    ) -> SemanticChecker<'semantic> {
-        return SemanticChecker { ast, logger, error };
+impl GlobalDeclarations {
+    pub fn run(
+        &mut self,
+        _node: NodePointer,
+        _ast: &mut AST,
+        _symbol_table: &mut SymbolTable,
+        _logger: &mut Logger,
+        _error: &mut ErrorReporter,
+    ) {
     }
+}
 
-    pub fn check(&mut self, node: NodePointer) {
-        self.logger.log("");
-        self.logger.log("-----------------------");
-        self.logger.log("BEGIN Semantic Checking");
-        self.logger.log("-----------------------");
-
-        self.type_check(node);
-
-        self.logger.log("\nAST after type checking:");
-        self.logger
-            .log(&format!("{}", self.ast.get_node(node).to_string(&self.ast)))
+impl IdentifiersPre {
+    pub fn run(
+        &mut self,
+        _node: NodePointer,
+        _ast: &mut AST,
+        _symbol_table: &mut SymbolTable,
+        _logger: &mut Logger,
+        _error: &mut ErrorReporter,
+    ) {
     }
+}
 
-    pub fn type_check(&mut self, node: NodePointer) {
-        // First we need to type check any children of this node
-        match self.ast.get_mut_node(node) {
-            ASTNode::RootNode(node) => {
-                let expression = node.expression;
-                self.type_check(expression);
-            }
-            ASTNode::ExpressionNode(node) => {
-                match node {
-                    ExpressionNode::Binary(node) => {
-                        // Type check left and right children
-                        let left = node.left;
-                        let right = node.right;
-                        self.type_check(left);
-                        self.type_check(right);
-                    }
-                    ExpressionNode::Unary(node) => {
-                        let operand = node.operand;
-                        self.type_check(operand);
-                    }
-                    // Leaf node, no children
-                    ExpressionNode::Literal(_) => {}
+impl IdentifiersPost {
+    pub fn run(
+        &mut self,
+        node: NodePointer,
+        ast: &mut AST,
+        symbol_table: &mut SymbolTable,
+        logger: &mut Logger,
+        error: &mut ErrorReporter,
+    ) {
+        match ast.get_mut_node(node) {
+            ASTNode::StatementNode(stmt_node) => match stmt_node {
+                StatementNode::VariableDeclaration(var_node) => {
+                    logger.log(&format!("Found variable declaration {}", &var_node.name));
+
+                    let symbol_pointer = symbol_table.new_symbol(
+                        var_node.name.clone(),
+                        Symbol::Variable(VariableSymbol::new(
+                            var_node.name.clone(),
+                            var_node.mutable,
+                        )),
+                    );
+                    var_node.symbol = Some(symbol_pointer);
                 }
-            }
-            // Leaf node, no children
-            ASTNode::NotANode(_) => {}
-        };
+                StatementNode::VariableAssignment(assmt_node) => {
+                    logger.log(&format!("Found variable assignment {}", &assmt_node.name));
 
+                    // See if this variable has been defined before
+                    match symbol_table.find_symbol(&assmt_node.name) {
+                        Some(symbol) => {
+                            logger.log(&format!("Variable {} has a declaration", &assmt_node.name));
+                            assmt_node.symbol = Some(symbol.to_owned());
+                            match &mut *symbol.borrow_mut() {
+                                // We can only assign to a mutable variable
+                                Symbol::Variable(var_symbol) => {
+                                    if !var_symbol.mutable {
+                                        error.report(
+                                            ErrorType::MultipleAssignmentError,
+                                            vec![ErrorMessage::new(
+                                                Some(String::from("Variable cannot be mutated")),
+                                                &assmt_node.token.location_info,
+                                            )],
+                                            Some(format!("Consider declaring this variable as mutable: \"let mut {}\"", assmt_node.name)),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        None => {
+                            logger.log(&format!(
+                                "Variable {} has a does NOT have a declaration",
+                                &assmt_node.name
+                            ));
+                            error.report(
+                                ErrorType::UnrecognizedIdentifierError,
+                                vec![ErrorMessage::new(
+                                    Some(format!(
+                                        "Cannot find identifier \"{}\"",
+                                        &assmt_node.name
+                                    )),
+                                    &assmt_node.token.location_info,
+                                )],
+                                None,
+                            );
+                        }
+                    }
+                }
+            },
+            ASTNode::ExpressionNode(expr_node) => match expr_node {
+                ExpressionNode::Variable(var_node) => {
+                    logger.log(&format!("Found variable {}", &var_node.name));
+
+                    // See if this variable has been defined before
+                    match symbol_table.find_symbol(&var_node.name) {
+                        Some(symbol) => {
+                            logger.log(&format!("Variable {} has a declaration", &var_node.name));
+                            var_node.symbol = Some(symbol.to_owned());
+                        }
+                        None => {
+                            logger.log(&format!(
+                                "Variable {} has a does NOT have a declaration",
+                                &var_node.name
+                            ));
+                            error.report(
+                                ErrorType::UnrecognizedIdentifierError,
+                                vec![ErrorMessage::new(
+                                    Some(format!("Cannot find identifier \"{}\"", &var_node.name)),
+                                    &var_node.token.location_info,
+                                )],
+                                None,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+}
+
+impl TypeChecking {
+    pub fn run(
+        &mut self,
+        node: NodePointer,
+        ast: &mut AST,
+        symbol_table: &mut SymbolTable,
+        logger: &mut Logger,
+        error: &mut ErrorReporter,
+    ) {
         // Now we can type check
-        self.logger.log(&format!(
+        logger.log(&format!(
             "Type checking node {}",
-            self.ast.get_node(node).node_to_string()
+            ast.get_node(node).node_to_string()
         ));
 
-        let node_clone = self.ast.get_mut_node(node).clone();
+        let node_clone = ast.get_mut_node(node).clone();
         match node_clone {
             ASTNode::ExpressionNode(expr) => match expr {
                 ExpressionNode::Literal(mut literal_node) => {
-                    let new_type = self.type_check_literal(&mut literal_node);
-                    self.infer_type(node, new_type);
+                    let new_type = type_check_literal(&mut literal_node);
+                    infer_type(node, new_type, ast, logger);
                 }
                 ExpressionNode::Binary(mut binary_node) => {
-                    let new_type = self.type_check_binary(&mut binary_node);
-                    self.infer_type(node, new_type);
+                    let new_type = type_check_binary(&mut binary_node, ast, error, logger);
+                    infer_type(node, new_type, ast, logger);
                 }
                 ExpressionNode::Unary(mut unary_node) => {
-                    let new_type = self.type_check_unary(&mut unary_node);
-                    self.infer_type(node, new_type);
+                    let new_type = type_check_unary(&mut unary_node, ast, error);
+                    infer_type(node, new_type, ast, logger);
+                }
+                // Variable expression nodes already have a type in their symbol table entry
+                // that was set when type checking the variable declaration nodes
+                ExpressionNode::Variable(_) => {}
+            },
+            ASTNode::StatementNode(node) => match node {
+                StatementNode::VariableDeclaration(mut var_node) => {
+                    type_check_variable_declaration(&mut var_node, ast, symbol_table, logger);
+                }
+                StatementNode::VariableAssignment(mut assmt_node) => {
+                    type_check_variable_assignment(
+                        &mut assmt_node,
+                        ast,
+                        symbol_table,
+                        logger,
+                        error,
+                    );
                 }
             },
             // Already type checked any children
             ASTNode::RootNode(_) => {}
             // No need to type check, already UnTyped
             ASTNode::NotANode(_) => {}
+            ASTNode::TypeHintNode(_) => {}
+            ASTNode::IdentifierNode(_) => {}
         }
     }
+}
 
-    pub fn type_check_literal(&mut self, node: &mut LiteralNode) -> DataType {
-        // Figure out what kind of literal node this is, and set its type for it
-        match node.value {
-            Literal::Int(_) => {
-                let data_type = Type::Primitive(Primitive::CompileTimeInt);
-                return DataType::new(data_type, data_type.get_label());
-            }
-            Literal::Float(_) => {
-                let data_type = Type::Primitive(Primitive::CompileTimeFloat);
-                return DataType::new(data_type, data_type.get_label());
-            }
-            Literal::True(_) | Literal::False(_) => {
-                let data_type = Type::Primitive(Primitive::Bool);
-                return DataType::new(data_type, data_type.get_label());
-            }
-            Literal::String(_) => {
-                let data_type = Type::Primitive(Primitive::String);
-                return DataType::new(data_type, data_type.get_label());
-            }
-        }
+impl MiscellaneousChecks {
+    pub fn run(
+        &mut self,
+        _node: NodePointer,
+        _ast: &mut AST,
+        _symbol_table: &mut SymbolTable,
+        _logger: &mut Logger,
+        _error: &mut ErrorReporter,
+    ) {
+    }
+}
+
+impl SemanticChecker<'_> {
+    pub fn new<'semantic>(
+        ast: &'semantic mut AST,
+        symbol_table: &'semantic mut SymbolTable,
+        logger: &'semantic mut Logger,
+        error: &'semantic mut ErrorReporter,
+    ) -> SemanticChecker<'semantic> {
+        return SemanticChecker {
+            ast,
+            symbol_table,
+            logger,
+            error,
+        };
     }
 
-    pub fn type_check_binary(&mut self, node: &mut BinaryExprNode) -> DataType {
-        // Get the type of the node's children
-        let left_pointer = node.left;
-        let left_type = self.ast.get_node(node.left).get_type();
-        let right_pointer = node.right;
-        let right_type = self.ast.get_node(node.right).get_type();
+    pub fn check(&mut self) {
+        self.logger.log("");
+        self.logger.log("-----------------------");
+        self.logger.log("BEGIN Semantic Checking");
+        self.logger.log("-----------------------");
 
-        // If either of the operands is untyped (meaning we've thrown a type error)
-        // just leave this node untyped as well
-        // to try and capture as many errors as possible before quitting
-        if is_untyped(&left_type) || is_untyped(&right_type) {
-            return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
-        } else {
-            if binary_is_arithmetic(node) {
-                // Both operands must be numbers, output is number
-                if is_number(&left_type) && is_number(&right_type) {
-                    // If both types are the same,
-                    // no casting is necessary and we can just infer the type of the operator
-                    if !is_compile_time(&left_type) && !is_compile_time(&right_type) {
-                        // We know the types of both operands,
-                        // so if they're the same type,
-                        // infer the type of the operator to be the type of one of them,
-                        // and if they're not the same type, throw an error
-                        if left_type == right_type {
-                            return left_type;
-                        } else {
-                            self.error.report(
-                                ErrorType::IncompatibleTypesError,
-                                vec![ErrorMessage::new(
-                                    Some(format!(
-                                        "Expressions of types '{}' and '{}' are incompatible",
-                                        left_type.get_label(),
-                                        right_type.get_label()
-                                    )),
-                                    &node.get_token().location_info,
-                                )],
-                                Some(
-                                    if left_type.size() > right_type.size() {
-                                        format!("Consider casting result of right expression into type '{}'", left_type.get_label())
-                                    } else if right_type.size() > left_type.size() {
-                                        format!("Consider casting result of left expression into type '{}'", right_type.get_label())
-                                    } else {
-                                        format!("Consider casting one type into the other")
-                                    }
-                                ),
-                            );
-                            return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
-                        }
-                    } else if !is_compile_time(&left_type) && is_compile_time(&right_type) {
-                        // We know the left type but not the right type,
-                        // so infer both the right type and the operator type to be the left type
-                        self.infer_type(right_pointer, left_type.clone());
-                        return left_type.clone();
-                    } else if is_compile_time(&left_type) && !is_compile_time(&right_type) {
-                        // We know the right type but not the left type,
-                        // so infer both the left type and the operator type
-                        // to be the right type
-                        self.infer_type(left_pointer, right_type.clone());
-                        return right_type.clone();
+        for new_child in self.ast.get_new_children() {
+            // First pass: Global declarations
+            self.logger.log("FIRST PASS: GLOBAL DECLARATIONS");
+            let mut global_declarations = Callback::GlobalDeclarations(GlobalDeclarations::new());
+            traverse(
+                &mut Traversal::Preorder(&mut global_declarations),
+                new_child,
+                self.ast,
+                self.symbol_table,
+                self.logger,
+                self.error,
+            );
+
+            // Second pass: Identifiers
+            self.logger.log("SECOND PASS: IDENTIFIERS");
+            let mut identifiers_pre = Callback::IdentifiersPre(IdentifiersPre::new());
+            let mut identifiers_post = Callback::IdentifiersPost(IdentifiersPost::new());
+            traverse(
+                &mut Traversal::PrePostorder(&mut identifiers_pre, &mut identifiers_post),
+                new_child,
+                self.ast,
+                self.symbol_table,
+                self.logger,
+                self.error,
+            );
+
+            // Third pass: Type checking
+            self.logger.log("THIRD PASS: TYPE CHECKING");
+            let mut type_checking = Callback::TypeChecking(TypeChecking::new());
+            traverse(
+                &mut Traversal::Postorder(&mut type_checking),
+                new_child,
+                self.ast,
+                self.symbol_table,
+                self.logger,
+                self.error,
+            );
+            // self.type_check(self.ast.root_node);
+
+            // Fourth pass: Miscellaneous checks
+            self.logger.log("FOURTH PASS: MISCELLANEOUS CHECKS");
+
+            self.logger.log("\nAST after semantic checking:");
+            self.logger.log(&format!(
+                "{}",
+                self.ast.get_root_node().to_string(&self.ast)
+            ));
+        }
+    }
+}
+
+pub fn type_check_literal(node: &mut LiteralNode) -> DataType {
+    // Figure out what kind of literal node this is, and set its type for it
+    match node.value {
+        Literal::Int(_) => {
+            let data_type = Type::Primitive(Primitive::CompileTimeInt);
+            return DataType::new(data_type);
+        }
+        Literal::Float(_) => {
+            let data_type = Type::Primitive(Primitive::CompileTimeFloat);
+            return DataType::new(data_type);
+        }
+        Literal::True(_) | Literal::False(_) => {
+            let data_type = Type::Primitive(Primitive::Bool);
+            return DataType::new(data_type);
+        }
+        Literal::String(_) => {
+            let data_type = Type::Primitive(Primitive::String);
+            return DataType::new(data_type);
+        }
+    }
+}
+
+pub fn type_check_binary(
+    node: &mut BinaryExprNode,
+    ast: &mut AST,
+    error: &mut ErrorReporter,
+    logger: &mut Logger,
+) -> DataType {
+    // Get the type of the node's children
+    let left_pointer = node.left;
+    let left_type = ast.get_node(node.left).get_type();
+    let right_pointer = node.right;
+    let right_type = ast.get_node(node.right).get_type();
+
+    // If either of the operands is untyped (meaning we've thrown a type error)
+    // just leave this node untyped as well
+    // to try and capture as many errors as possible before quitting
+    if is_untyped(&left_type) || is_untyped(&right_type) {
+        return DataType::new(Type::UnTyped);
+    } else {
+        if binary_is_arithmetic(node) {
+            // Both operands must be numbers, output is number
+            if is_number(&left_type) && is_number(&right_type) {
+                // If both types are the same,
+                // no casting is necessary and we can just infer the type of the operator
+                if !is_compile_time(&left_type) && !is_compile_time(&right_type) {
+                    // We know the types of both operands,
+                    // so if they're the same type,
+                    // infer the type of the operator to be the type of one of them,
+                    // and if they're not the same type, throw an error
+                    if left_type == right_type {
+                        return left_type;
                     } else {
-                        // Otherwise, neither of the types are known right now
-                        // (or more accurately, we know whether they are ints or floats
-                        // but not their size), so the best we can do is to just bubble
-                        // that compile time number type up to the operand
-                        //
-                        // First, make sure they are both compile time integers
-                        // or both compile time floats
-                        if left_type == right_type {
-                            return left_type;
-                        } else {
-                            // Otherwise, you can't do arithmetic on a float and an integer
-                            self.error.report(
+                        error.report(
+                            ErrorType::IncompatibleTypesError,
+                            vec![ErrorMessage::new(
+                                Some(format!(
+                                    "Expressions of types '{}' and '{}' are incompatible",
+                                    left_type.get_label(),
+                                    right_type.get_label()
+                                )),
+                                &node.get_token().location_info,
+                            )],
+                            Some(if left_type.size() > right_type.size() {
+                                format!(
+                                    "Consider casting result of right expression into type '{}'",
+                                    left_type.get_label()
+                                )
+                            } else if right_type.size() > left_type.size() {
+                                format!(
+                                    "Consider casting result of left expression into type '{}'",
+                                    right_type.get_label()
+                                )
+                            } else {
+                                format!("Consider casting one type into the other")
+                            }),
+                        );
+                        return DataType::new(Type::UnTyped);
+                    }
+                } else if !is_compile_time(&left_type) && is_compile_time(&right_type) {
+                    // We know the left type but not the right type,
+                    // so infer both the right type and the operator type to be the left type
+                    infer_type(right_pointer, left_type.clone(), ast, logger);
+                    return left_type.clone();
+                } else if is_compile_time(&left_type) && !is_compile_time(&right_type) {
+                    // We know the right type but not the left type,
+                    // so infer both the left type and the operator type
+                    // to be the right type
+                    infer_type(left_pointer, right_type.clone(), ast, logger);
+                    return right_type.clone();
+                } else {
+                    // Otherwise, neither of the types are known right now
+                    // (or more accurately, we know whether they are ints or floats
+                    // but not their size), so the best we can do is to just bubble
+                    // that compile time number type up to the operand
+                    //
+                    // First, make sure they are both compile time integers
+                    // or both compile time floats
+                    if left_type == right_type {
+                        return left_type;
+                    } else {
+                        // Otherwise, you can't do arithmetic on a float and an integer
+                        error.report(
                                 ErrorType::IncompatibleTypesError,
                                 vec![ErrorMessage::new(
                                     Some(format!(
@@ -237,86 +438,42 @@ impl SemanticChecker<'_> {
                                 )],
                                 Some(String::from("Consider casting the result of one expression into the type of the other")),
                             );
-                            return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
-                        }
+                        return DataType::new(Type::UnTyped);
                     }
-                } else {
-                    let left = self.ast.get_node(left_pointer).clone();
-                    let right = self.ast.get_node(right_pointer).clone();
-                    self.incompatible_type_error_two_operands(
-                        &left,
-                        &right,
-                        &PrimitiveClass::Number,
-                        &node,
-                    );
-                    return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
                 }
-            } else if binary_is_boolean(node) {
-                // Both operands must be bools, result is bool
-                if is_bool(&left_type) && is_bool(&right_type) {
-                    return DataType::new(
-                        Type::Primitive(Primitive::Bool),
-                        Type::Primitive(Primitive::Bool).get_label(),
-                    );
-                } else {
-                    let left = self.ast.get_node(left_pointer).clone();
-                    let right = self.ast.get_node(right_pointer).clone();
-                    self.incompatible_type_error_two_operands(
-                        &left,
-                        &right,
-                        &PrimitiveClass::Bool,
-                        &node,
-                    );
-                    return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
-                }
-            } else if binary_is_comparison(node) {
-                // Operands must be numbers (no need to implicitly cast), result is bool
-                if is_number(&left_type) && is_number(&right_type) {
-                    if left_type != right_type {
-                        self.error.report(
-                            ErrorType::IncompatibleTypesError,
-                            vec![
-                                ErrorMessage::new(
-                                    Some(format!(
-                                        "Expressions with types '{}' and '{}' are incompatible",
-                                        left_type.get_label(),
-                                        right_type.get_label()
-                                    )),
-                                    &node.get_token().location_info,
-                                ),
-                                ErrorMessage::new(
-                                    Some(format!("'{}'", left_type.get_label())),
-                                    &self.ast.get_node(left_pointer).get_token().location_info,
-                                ),
-                                ErrorMessage::new(
-                                    Some(format!("'{}'", right_type.get_label())),
-                                    &self.ast.get_node(right_pointer).get_token().location_info,
-                                ),
-                            ],
-                            None,
-                        );
-                        return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
-                    } else {
-                        return DataType::new(
-                            Type::Primitive(Primitive::Bool),
-                            Type::Primitive(Primitive::Bool).get_label(),
-                        );
-                    }
-                } else {
-                    let left = self.ast.get_node(left_pointer).clone();
-                    let right = self.ast.get_node(right_pointer).clone();
-                    self.incompatible_type_error_two_operands(
-                        &left,
-                        &right,
-                        &PrimitiveClass::Number,
-                        &node,
-                    );
-                    return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
-                }
-            } else if binary_is_equality(node) {
-                // Operands can be anything, result is bool
+            } else {
+                let left = ast.get_node(left_pointer).clone();
+                let right = ast.get_node(right_pointer).clone();
+                incompatible_type_error_two_operands(
+                    &left,
+                    &right,
+                    &PrimitiveClass::Number,
+                    &node,
+                    error,
+                );
+                return DataType::new(Type::UnTyped);
+            }
+        } else if binary_is_boolean(node) {
+            // Both operands must be bools, result is bool
+            if is_bool(&left_type) && is_bool(&right_type) {
+                return DataType::new(Type::Primitive(Primitive::Bool));
+            } else {
+                let left = ast.get_node(left_pointer).clone();
+                let right = ast.get_node(right_pointer).clone();
+                incompatible_type_error_two_operands(
+                    &left,
+                    &right,
+                    &PrimitiveClass::Bool,
+                    &node,
+                    error,
+                );
+                return DataType::new(Type::UnTyped);
+            }
+        } else if binary_is_comparison(node) {
+            // Operands must be numbers (no need to implicitly cast), result is bool
+            if is_number(&left_type) && is_number(&right_type) {
                 if left_type != right_type {
-                    self.error.report(
+                    error.report(
                         ErrorType::IncompatibleTypesError,
                         vec![
                             ErrorMessage::new(
@@ -329,444 +486,388 @@ impl SemanticChecker<'_> {
                             ),
                             ErrorMessage::new(
                                 Some(format!("'{}'", left_type.get_label())),
-                                &self.ast.get_node(left_pointer).get_token().location_info,
+                                &ast.get_node(left_pointer).get_token().location_info,
                             ),
                             ErrorMessage::new(
                                 Some(format!("'{}'", right_type.get_label())),
-                                &self.ast.get_node(right_pointer).get_token().location_info,
+                                &ast.get_node(right_pointer).get_token().location_info,
                             ),
                         ],
                         None,
                     );
-                    return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
+                    return DataType::new(Type::UnTyped);
                 } else {
-                    return DataType::new(
-                        Type::Primitive(Primitive::Bool),
-                        Type::Primitive(Primitive::Bool).get_label(),
-                    );
+                    return DataType::new(Type::Primitive(Primitive::Bool));
                 }
             } else {
-                return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
+                let left = ast.get_node(left_pointer).clone();
+                let right = ast.get_node(right_pointer).clone();
+                incompatible_type_error_two_operands(
+                    &left,
+                    &right,
+                    &PrimitiveClass::Number,
+                    &node,
+                    error,
+                );
+                return DataType::new(Type::UnTyped);
             }
+        } else if binary_is_equality(node) {
+            // Operands can be anything, result is bool
+            if left_type != right_type {
+                error.report(
+                    ErrorType::IncompatibleTypesError,
+                    vec![
+                        ErrorMessage::new(
+                            Some(format!(
+                                "Expressions with types '{}' and '{}' are incompatible",
+                                left_type.get_label(),
+                                right_type.get_label()
+                            )),
+                            &node.get_token().location_info,
+                        ),
+                        ErrorMessage::new(
+                            Some(format!("'{}'", left_type.get_label())),
+                            &ast.get_node(left_pointer).get_token().location_info,
+                        ),
+                        ErrorMessage::new(
+                            Some(format!("'{}'", right_type.get_label())),
+                            &ast.get_node(right_pointer).get_token().location_info,
+                        ),
+                    ],
+                    None,
+                );
+                return DataType::new(Type::UnTyped);
+            } else {
+                return DataType::new(Type::Primitive(Primitive::Bool));
+            }
+        } else {
+            return DataType::new(Type::UnTyped);
         }
     }
+}
 
-    pub fn type_check_unary(&mut self, node: &mut UnaryExprNode) -> DataType {
-        // Get the type of the node's operand
-        let operand_pointer = node.operand;
-        let operand_type = self.ast.get_node(node.operand).get_type();
+pub fn type_check_unary(
+    node: &mut UnaryExprNode,
+    ast: &mut AST,
+    error: &mut ErrorReporter,
+) -> DataType {
+    // Get the type of the node's operand
+    let operand_pointer = node.operand;
+    let operand_type = ast.get_node(node.operand).get_type();
 
-        // If either of the operands is untyped (meaning we've thrown a type error)
-        // just leave this node untyped as well
-        // to try and capture as many errors as possible before quitting
-        if is_untyped(&operand_type) {
-            return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
-        } else {
-            match node.operator {
-                UnaryOperator::Minus => {
-                    // Operand must be a number, result is a number
-                    if is_number(&operand_type) {
-                        // If the operand is an unsigned int, it can't be negated
-                        if is_unsigned(&operand_type) {
-                            self.error.report(
-                                ErrorType::IncompatibleTypesError,
-                                vec![
-                                    ErrorMessage::new(
-                                        Some(format!(
-                                            "Expression with unsigned type '{}' cannot be negated",
-                                            operand_type.get_label()
-                                        )),
-                                        &node.get_token().location_info,
-                                    ),
-                                    ErrorMessage::new(
-                                        Some(format!("'{}'", operand_type.get_label())),
-                                        &self
-                                            .ast
-                                            .get_node(operand_pointer)
-                                            .get_token()
-                                            .location_info,
-                                    ),
-                                ],
-                                None,
-                            );
-                            return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
-                        } else {
-                            // Return a copy of the operand's type
-                            return operand_type;
-                        }
-                    } else {
-                        // Throw an incompatible type error
-                        self.error.report(
+    // If either of the operands is untyped (meaning we've thrown a type error)
+    // just leave this node untyped as well
+    // to try and capture as many errors as possible before quitting
+    if is_untyped(&operand_type) {
+        return DataType::new(Type::UnTyped);
+    } else {
+        match node.operator {
+            UnaryOperator::Minus => {
+                // Operand must be a number, result is a number
+                if is_number(&operand_type) {
+                    // If the operand is an unsigned int, it can't be negated
+                    if is_unsigned(&operand_type) {
+                        error.report(
                             ErrorType::IncompatibleTypesError,
                             vec![
                                 ErrorMessage::new(
                                     Some(format!(
-                                        "Expression with type '{}' is incompatible with operator '{}'",
-                                        operand_type.get_label(),
-                                        node.get_operator()
+                                        "Expression with unsigned type '{}' cannot be negated",
+                                        operand_type.get_label()
                                     )),
                                     &node.get_token().location_info,
                                 ),
                                 ErrorMessage::new(
                                     Some(format!("'{}'", operand_type.get_label())),
-                                    &self.ast.get_node(operand_pointer).get_token().location_info,
+                                    &ast.get_node(operand_pointer).get_token().location_info,
                                 ),
                             ],
                             None,
                         );
-
-                        return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
-                    }
-                }
-                UnaryOperator::Not => {
-                    // Operand must be a bool, result is a bool
-                    if is_bool(&operand_type) {
-                        // Infer the type of the operator
-                        return operand_type.clone();
+                        return DataType::new(Type::UnTyped);
                     } else {
-                        // Throw an incompatible type error
-                        self.error.report(
-                            ErrorType::IncompatibleTypesError,
-                            vec![
-                                ErrorMessage::new(
-                                    Some(format!(
+                        // Return a copy of the operand's type
+                        return operand_type;
+                    }
+                } else {
+                    // Throw an incompatible type error
+                    error.report(
+                        ErrorType::IncompatibleTypesError,
+                        vec![
+                            ErrorMessage::new(
+                                Some(format!(
                                     "Expression with type '{}' is incompatible with operator '{}'",
                                     operand_type.get_label(),
                                     node.get_operator()
                                 )),
-                                    &node.get_token().location_info,
-                                ),
-                                ErrorMessage::new(
-                                    Some(format!("'{}'", operand_type.get_label())),
-                                    &self.ast.get_node(operand_pointer).get_token().location_info,
-                                ),
-                            ],
-                            None,
-                        );
+                                &node.get_token().location_info,
+                            ),
+                            ErrorMessage::new(
+                                Some(format!("'{}'", operand_type.get_label())),
+                                &ast.get_node(operand_pointer).get_token().location_info,
+                            ),
+                        ],
+                        None,
+                    );
 
-                        return DataType::new(Type::UnTyped, Type::UnTyped.get_label());
-                    }
+                    return DataType::new(Type::UnTyped);
                 }
             }
-        }
-    }
-
-    // Try casting in both directions and do so if possible
-    pub fn dual_directional_cast(&mut self, left: NodePointer, right: NodePointer) -> bool {
-        let left_type = self.ast.get_node(left).get_type();
-        let right_type = self.ast.get_node(right).get_type();
-
-        // Check if we can cast the left node into the type of the right node
-        match self.can_implicitly_cast(&left_type, &right_type) {
-            // If we can, cast the left node into the type of the right node
-            CanCast::Yes => {
-                self.implicit_cast(left, right);
-                return true;
-            }
-            // If we can't, check if we can cast the right node into the type of the left node
-            CanCast::No(_) => match self.can_implicitly_cast(&right_type, &left_type) {
-                // If we can, cast the right node into the type of the left node
-                CanCast::Yes => {
-                    self.implicit_cast(right, left);
-                    return true;
-                }
-                // If we can't, throw an incompatible types error
-                CanCast::No(_) => {
-                    let error_type = ErrorType::IncompatibleTypesError;
-                    self.error.report(
-                        error_type,
+            UnaryOperator::Not => {
+                // Operand must be a bool, result is a bool
+                if is_bool(&operand_type) {
+                    // Infer the type of the operator
+                    return operand_type.clone();
+                } else {
+                    // Throw an incompatible type error
+                    error.report(
+                        ErrorType::IncompatibleTypesError,
                         vec![
                             ErrorMessage::new(
                                 Some(format!(
-                                    "{} '{}' and '{}'",
-                                    error_type.description(),
-                                    left_type.get_label(),
-                                    right_type.get_label(),
+                                    "Expression with type '{}' is incompatible with operator '{}'",
+                                    operand_type.get_label(),
+                                    node.get_operator()
                                 )),
-                                &self.ast.get_node(left).get_token().location_info,
+                                &node.get_token().location_info,
                             ),
                             ErrorMessage::new(
-                                None,
-                                &self.ast.get_node(right).get_token().location_info,
+                                Some(format!("'{}'", operand_type.get_label())),
+                                &ast.get_node(operand_pointer).get_token().location_info,
                             ),
                         ],
                         None,
                     );
 
-                    return false;
+                    return DataType::new(Type::UnTyped);
                 }
-            },
-        }
-    }
-
-    // Test if we can cast one type into another
-    pub fn can_implicitly_cast(&self, old_type: &DataType, new_type: &DataType) -> CanCast {
-        // We can't implicitly cast a number into a non-number
-        if is_number(&old_type) && !is_number(&new_type) {
-            return CanCast::No(format!(
-                "Cannot implicitly cast number of type '{}' into non-number of type '{}'",
-                old_type.get_label(),
-                new_type.get_label(),
-            ));
-        }
-        // We can't implicitly cast a non-number into a number
-        else if !is_number(&old_type) && is_number(&new_type) {
-            return CanCast::No(format!(
-                "Cannot implicitly cast non-number of type '{}' into number of type '{}'",
-                old_type.get_label(),
-                new_type.get_label(),
-            ));
-        }
-        // We can't implicitly cast floats into ints
-        else if is_float(&old_type) && is_int(&new_type) {
-            return CanCast::No(format!(
-                "Cannot implicitly cast number of type '{}' into number of type '{}'",
-                old_type.get_label(),
-                new_type.get_label(),
-            ));
-        }
-        // We can't implicitly cast signed into unsigned
-        else if is_signed(&old_type) && is_unsigned(&new_type) {
-            return CanCast::No(format!(
-                "Cannot implicitly cast signed integer of type '{}' into unsigned integer of type '{}' due to the possibility of truncation or overflow",
-                old_type.get_label(),
-                new_type.get_label(),
-            ));
-        }
-        // We can't implicitly cast unsigned into signed
-        else if is_unsigned(&old_type) && is_signed(&new_type) {
-            return CanCast::No(format!(
-                "Cannot implicitly cast unsigned integer of type '{}' into signed integer of type '{}' due to the possibility of truncation or overflow",
-                old_type.get_label(),
-                new_type.get_label(),
-            ));
-        }
-        // We can't implicitly cast a larger type into a smaller type
-        else if old_type.size() > new_type.size() {
-            return CanCast::No(format!(
-                "Cannot implicitly cast larger type '{}' into smaller type '{}' due to the possibility of truncation",
-                old_type.get_label(),
-                new_type.get_label(),
-            ));
-        }
-        // We can't implicitly cast a non-number type into a different non-number type
-        else if !is_number(&old_type) && !is_number(&new_type) && old_type != new_type {
-            return CanCast::No(format!(
-                "Cannot implicitly cast value of type '{}' into value of type '{}'",
-                old_type.get_label(),
-                new_type.get_label(),
-            ));
-        }
-        // We can't cast i64 or u64 into f64
-        else {
-            match old_type.data_type {
-                Type::Primitive(old_primitive) => match old_primitive {
-                    Primitive::I64 | Primitive::U64 => match new_type.data_type {
-                        Type::Primitive(new_primitive) => match new_primitive {
-                            Primitive::F64 => {
-                                return CanCast::No(format!(
-                                    "Cannot implicitly cast value of type '{}' into value of type '{}'",
-                                    old_type.get_label(),
-                                    new_type.get_label(),
-                                ));
-                            }
-                            // We can cast!!
-                            _ => return CanCast::Yes,
-                        },
-                        // We can cast!!
-                        _ => return CanCast::Yes,
-                    },
-                    // We can cast!!
-                    _ => return CanCast::Yes,
-                },
-                // We can cast!!
-                _ => return CanCast::Yes,
             }
         }
     }
+}
 
-    // Cast node to type
-    pub fn implicit_cast(&mut self, old_type_node: NodePointer, new_type_node: NodePointer) {
-        // Get the new type we want to cast the old_type_node to
-        let new_type = self.ast.get_node(new_type_node).get_type();
+pub fn type_check_variable_declaration(
+    node: &mut VariableDeclarationNode,
+    ast: &mut AST,
+    symbol_table: &mut SymbolTable,
+    logger: &mut Logger,
+) {
+    let expression_type = ast.get_node(node.expression).get_type();
 
-        // Replace the type of the old_type_node with a copy of the new type
-        self.infer_type(old_type_node, new_type);
-    }
-
-    pub fn infer_type(&mut self, node_pointer: NodePointer, new_type: DataType) {
-        let node = self.ast.get_mut_node(node_pointer);
-
-        self.logger.log(&format!(
-            "Inferring type of {} to be '{}'",
-            node.node_to_string(),
-            new_type.get_label()
-        ));
-
-        node.set_type(new_type.clone());
-
-        // If this node evaluates to a compile-time number,
-        // we may need to infer the types of its children as well
-        if is_compile_time(&node.get_type()) {
-            match node {
-                ASTNode::ExpressionNode(expr_node) => {
-                    match expr_node {
-                        // Leaf node, no children to infer the type of
-                        ExpressionNode::Literal(_) => {}
-                        ExpressionNode::Binary(binary_node) => {
-                            // Infer the type of both children
-                            let left_pointer = binary_node.left;
-                            let right_pointer = binary_node.right;
-                            self.infer_type(left_pointer, new_type.clone());
-                            self.infer_type(right_pointer, new_type);
-                        }
-                        ExpressionNode::Unary(unary_node) => {
-                            // Infer the type of child
-                            let operand_pointer = unary_node.operand;
-                            self.infer_type(operand_pointer, new_type);
-                        }
+    // If this assignment has a type hint,
+    // make sure the expression has the same type
+    match node.type_hint {
+        Some(type_hint_pointer) => {
+            let hint_type = ast.get_node(type_hint_pointer).get_type();
+            if hint_type != expression_type {
+                // If the types aren't equal,
+                // the expression could still have a compile-time type
+                if is_compile_time(&expression_type) {
+                    if (is_int(&hint_type) && is_compile_time_int(&expression_type))
+                        || (is_float(&hint_type) && is_compile_time_float(&expression_type))
+                    {
+                        // update the expression type
+                        infer_type(node.expression, hint_type.clone(), ast, logger);
                     }
                 }
-                ASTNode::RootNode(_) => panic!("Trying to infer type of RootNode"),
-                ASTNode::NotANode(_) => panic!("Trying to infer type of NotANode"),
+            }
+
+            // Infer the type of the variable
+            match symbol_table.find_symbol(&node.name) {
+                None => panic!("Should have already handled case that variable cannot be found"),
+                Some(symbol) => match &mut *symbol.borrow_mut() {
+                    Symbol::Variable(var_symbol) => var_symbol.data_type = hint_type,
+                },
             }
         }
-        /*
-        // If this is a literal node, we may need to update its value
+        None => {
+            // Infer the type of the variable
+            match symbol_table.find_symbol(&node.name) {
+                None => panic!("Should have already handled case that variable cannot be found"),
+                Some(symbol) => match &mut *symbol.borrow_mut() {
+                    Symbol::Variable(var_symbol) => var_symbol.data_type = expression_type,
+                },
+            }
+        }
+    }
+}
+
+pub fn type_check_variable_assignment(
+    node: &mut VariableAssignmentNode,
+    ast: &mut AST,
+    symbol_table: &mut SymbolTable,
+    logger: &mut Logger,
+    error: &mut ErrorReporter,
+) {
+    let expression_type = ast.get_node(node.expression).get_type();
+
+    // Make sure the expression has the same type as the variable
+    match symbol_table.find_symbol(&node.name) {
+        None => panic!("Should have already handled case that variable cannot be found"),
+        Some(symbol) => match &mut *symbol.borrow_mut() {
+            Symbol::Variable(var_symbol) => {
+                if var_symbol.data_type != expression_type {
+                    // If the types aren't equal, the expression could still have a compile-time type
+                    if is_compile_time(&expression_type) {
+                        if (is_int(&var_symbol.data_type) && is_compile_time_int(&expression_type))
+                            || (is_float(&var_symbol.data_type)
+                                && is_compile_time_float(&expression_type))
+                        {
+                            // Update the expression type
+                            infer_type(node.expression, var_symbol.data_type.clone(), ast, logger);
+                        }
+                    } else {
+                        // We have an incompatible type error
+                        error.report(
+                            ErrorType::IncompatibleTypesError,
+                            vec![ErrorMessage::new(
+                                Some(format!(
+                                    "Expected expression of type {}",
+                                    var_symbol.data_type.type_label
+                                )),
+                                &ast.get_node(node.expression).get_token().location_info,
+                            )],
+                            None,
+                        );
+                    }
+                }
+            }
+        },
+    }
+}
+
+pub fn infer_type(
+    node_pointer: NodePointer,
+    new_type: DataType,
+    ast: &mut AST,
+    logger: &mut Logger,
+) {
+    let node = ast.get_mut_node(node_pointer);
+
+    logger.log(&format!(
+        "Inferring type of {} to be '{}'",
+        node.node_to_string(),
+        new_type.get_label()
+    ));
+
+    node.set_type(new_type.clone());
+
+    // If this node evaluates to a compile-time number,
+    // we may need to infer the types of its children as well
+    if is_compile_time(&node.get_type()) {
         match node {
             ASTNode::ExpressionNode(expr_node) => {
                 match expr_node {
-                    ExpressionNode::Literal(literal_node) => {
-                        match literal_node.value {
-                            Literal::Int(int_val) => {
-                                // If our new type is float
-                                let new_type = node.get_type();
-                                if is_float(&new_type) {
-                                    self.logger.log(&format!(
-                                        "Updating value of {}:",
-                                        node.node_to_string()
-                                    ));
-                                    *node = ASTNode::ExpressionNode(ExpressionNode::Literal(
-                                        LiteralNode::new(
-                                            Literal::Float(int_val as f64),
-                                            node.get_token().clone(),
-                                        ),
-                                    ));
-                                    node.set_type(new_type);
-                                    self.logger.log(&format!("\t{}", node.node_to_string()));
-                                }
-                            }
-                            Literal::Float(float_val) => {
-                                // Check our new type
-                                let new_type = node.get_type();
-                                if is_int(&new_type) {
-                                    self.logger.log(&format!(
-                                        "Updating value of {}:",
-                                        node.node_to_string()
-                                    ));
-                                    *node = ASTNode::ExpressionNode(ExpressionNode::Literal(
-                                        LiteralNode::new(
-                                            Literal::Int(float_val as i128),
-                                            node.get_token().clone(),
-                                        ),
-                                    ));
-                                    node.set_type(new_type);
-                                    self.logger.log(&format!("\t{}", node.node_to_string()));
-                                }
-                            }
-                            _ => {}
-                        }
+                    // Leaf node, no children to infer the type of
+                    ExpressionNode::Literal(_) => {}
+                    ExpressionNode::Binary(binary_node) => {
+                        // Infer the type of both children
+                        let left_pointer = binary_node.left;
+                        let right_pointer = binary_node.right;
+                        infer_type(left_pointer, new_type.clone(), ast, logger);
+                        infer_type(right_pointer, new_type, ast, logger);
                     }
-                    _ => {}
+                    ExpressionNode::Unary(unary_node) => {
+                        // Infer the type of child
+                        let operand_pointer = unary_node.operand;
+                        infer_type(operand_pointer, new_type, ast, logger);
+                    }
+                    // Variable expression nodes already have types in their symbol table entries,
+                    // as set by type checking the declaration node
+                    ExpressionNode::Variable(_) => {}
                 }
             }
-            _ => {}
+            ASTNode::RootNode(_) => panic!("Trying to infer type of RootNode"),
+            ASTNode::NotANode(_) => panic!("Trying to infer type of NotANode"),
+            ASTNode::StatementNode(_) => panic!("Trying to infer type of StatementNode"),
+            ASTNode::TypeHintNode(_) => panic!("Trying to infer type of TypeHintNode"),
+            ASTNode::IdentifierNode(_) => panic!("Trying to infer type of IdentifierNode"),
         }
-        */
     }
+}
 
-    pub fn incompatible_type_error_two_operands(
-        &mut self,
-        left: &ASTNode,
-        right: &ASTNode,
-        expected_type: &PrimitiveClass,
-        operator: &BinaryExprNode,
-    ) {
-        let left_type = left.get_type();
-        let right_type = right.get_type();
+pub fn incompatible_type_error_two_operands(
+    left: &ASTNode,
+    right: &ASTNode,
+    expected_type: &PrimitiveClass,
+    operator: &BinaryExprNode,
+    error: &mut ErrorReporter,
+) {
+    let left_type = left.get_type();
+    let right_type = right.get_type();
 
-        match expected_type {
-            // If the operator expects numbers
-            PrimitiveClass::Number => {
-                // If the left type is a number but the right type isn't
-                if is_number(&left_type) && !is_number(&right_type) {
-                    self.error.report(
-                        ErrorType::IncompatibleTypesError,
-                        vec![
-                            ErrorMessage::new(
-                                if is_compile_time(&right_type) {
-                                    Some(format!(
-                                        "{} is incompatible with operator '{}'",
-                                        right_type.get_label(),
-                                        &operator.get_operator()
-                                    ))
-                                } else {
-                                    Some(format!(
-                                        "Expression with type '{}' is incompatible with operator '{}'",
-                                        right_type.get_label(),
-                                        &operator.get_operator()
-                                    ))
-                                },
-                                &operator.get_token().location_info,
-                            ),
-                            ErrorMessage::new(
-                                if is_compile_time(&right_type) {
-                                    Some(format!("{}", right_type.get_label()))
-                                } else {
-                                    Some(format!("'{}'", right_type.get_label()))
-                                },
-                                &left.get_token().location_info,
-                            ),
-                        ],
-                        None,
-                    );
-                }
-                // If the left type isn't a number but the right type is
-                else if !is_number(&left_type) && is_number(&right_type) {
-                    self.error.report(
-                        ErrorType::IncompatibleTypesError,
-                        vec![
-                            ErrorMessage::new(
-                                if is_compile_time(&left_type) {
-                                    Some(format!(
-                                        "{} is incompatible with operator '{}'",
-                                        left_type.get_label(),
-                                        &operator.get_operator()
-                                    ))
-                                } else {
-                                    Some(format!(
-                                        "Expression with type '{}' is incompatible with operator '{}'",
-                                        right_type.get_label(),
-                                        &operator.get_operator()
-                                    ))
-                                },
-                                &operator.get_token().location_info,
-                            ),
-                            ErrorMessage::new(
-                                if is_compile_time(&left_type) {
-                                    Some(format!("{}", left_type.get_label()))
-                                } else {
-                                    Some(format!("'{}'", left_type.get_label()))
-                                },
-                                &left.get_token().location_info,
-                            ),
-                        ],
-                        None,
-                    );
-                }
-                // If neither type is a number but they are the same
-                else if left_type == right_type {
-                    self.error.report(
+    match expected_type {
+        // If the operator expects numbers
+        PrimitiveClass::Number => {
+            // If the left type is a number but the right type isn't
+            if is_number(&left_type) && !is_number(&right_type) {
+                error.report(
+                    ErrorType::IncompatibleTypesError,
+                    vec![
+                        ErrorMessage::new(
+                            if is_compile_time(&right_type) {
+                                Some(format!(
+                                    "{} is incompatible with operator '{}'",
+                                    right_type.get_label(),
+                                    &operator.get_operator()
+                                ))
+                            } else {
+                                Some(format!(
+                                    "Expression with type '{}' is incompatible with operator '{}'",
+                                    right_type.get_label(),
+                                    &operator.get_operator()
+                                ))
+                            },
+                            &operator.get_token().location_info,
+                        ),
+                        ErrorMessage::new(
+                            if is_compile_time(&right_type) {
+                                Some(format!("{}", right_type.get_label()))
+                            } else {
+                                Some(format!("'{}'", right_type.get_label()))
+                            },
+                            &left.get_token().location_info,
+                        ),
+                    ],
+                    None,
+                );
+            }
+            // If the left type isn't a number but the right type is
+            else if !is_number(&left_type) && is_number(&right_type) {
+                error.report(
+                    ErrorType::IncompatibleTypesError,
+                    vec![
+                        ErrorMessage::new(
+                            if is_compile_time(&left_type) {
+                                Some(format!(
+                                    "{} is incompatible with operator '{}'",
+                                    left_type.get_label(),
+                                    &operator.get_operator()
+                                ))
+                            } else {
+                                Some(format!(
+                                    "Expression with type '{}' is incompatible with operator '{}'",
+                                    right_type.get_label(),
+                                    &operator.get_operator()
+                                ))
+                            },
+                            &operator.get_token().location_info,
+                        ),
+                        ErrorMessage::new(
+                            if is_compile_time(&left_type) {
+                                Some(format!("{}", left_type.get_label()))
+                            } else {
+                                Some(format!("'{}'", left_type.get_label()))
+                            },
+                            &left.get_token().location_info,
+                        ),
+                    ],
+                    None,
+                );
+            }
+            // If neither type is a number but they are the same
+            else if left_type == right_type {
+                error.report(
                         ErrorType::IncompatibleTypesError,
                         vec![
                             ErrorMessage::new(
@@ -804,10 +905,10 @@ impl SemanticChecker<'_> {
                         ],
                         None,
                     );
-                }
-                // If neither type is a number and they are different
-                else {
-                    self.error.report(
+            }
+            // If neither type is a number and they are different
+            else {
+                error.report(
                         ErrorType::IncompatibleTypesError,
                         vec![
                             ErrorMessage::new(
@@ -860,79 +961,79 @@ impl SemanticChecker<'_> {
                         ],
                         None,
                     );
-                }
             }
-            // If the operator expects bools
-            PrimitiveClass::Bool => {
-                // If the left type is a bool but the right type isn't
-                if is_bool(&left_type) && !is_bool(&right_type) {
-                    self.error.report(
-                        ErrorType::IncompatibleTypesError,
-                        vec![
-                            ErrorMessage::new(
-                                if is_compile_time(&right_type) {
-                                    Some(format!(
-                                        "{} is incompatible with operator '{}'",
-                                        right_type.get_label(),
-                                        &operator.get_operator()
-                                    ))
-                                } else {
-                                    Some(format!(
-                                        "Expression with type '{}' is incompatible with operator '{}'",
-                                        right_type.get_label(),
-                                        &operator.get_operator()
-                                    ))
-                                },
-                                &operator.get_token().location_info,
-                            ),
-                            ErrorMessage::new(
-                                if is_compile_time(&right_type) {
-                                    Some(format!("{}", right_type.get_label()))
-                                } else {
-                                    Some(format!("'{}'", right_type.get_label()))
-                                },
-                                &right.get_token().location_info,
-                            ),
-                        ],
-                        None,
-                    );
-                }
-                // If the left type isn't a bool but the right type is
-                else if !is_bool(&left_type) && is_bool(&right_type) {
-                    self.error.report(
-                        ErrorType::IncompatibleTypesError,
-                        vec![
-                            ErrorMessage::new(
-                                if is_compile_time(&left_type) {
-                                    Some(format!(
-                                        "{} is incompatible with operator '{}'",
-                                        left_type.get_label(),
-                                        &operator.get_operator()
-                                    ))
-                                } else {
-                                    Some(format!(
-                                        "Expression with type '{}' is incompatible with operator '{}'",
-                                        left_type.get_label(),
-                                        &operator.get_operator()
-                                    ))
-                                },
-                                &operator.get_token().location_info,
-                            ),
-                            ErrorMessage::new(
-                                if is_compile_time(&left_type) {
-                                    Some(format!("{}", left_type.get_label()))
-                                } else {
-                                    Some(format!("'{}'", left_type.get_label()))
-                                },
-                                &left.get_token().location_info,
-                            ),
-                        ],
-                        None,
-                    );
-                }
-                // If neither type is a bool but they are the same
-                else if left_type == right_type {
-                    self.error.report(
+        }
+        // If the operator expects bools
+        PrimitiveClass::Bool => {
+            // If the left type is a bool but the right type isn't
+            if is_bool(&left_type) && !is_bool(&right_type) {
+                error.report(
+                    ErrorType::IncompatibleTypesError,
+                    vec![
+                        ErrorMessage::new(
+                            if is_compile_time(&right_type) {
+                                Some(format!(
+                                    "{} is incompatible with operator '{}'",
+                                    right_type.get_label(),
+                                    &operator.get_operator()
+                                ))
+                            } else {
+                                Some(format!(
+                                    "Expression with type '{}' is incompatible with operator '{}'",
+                                    right_type.get_label(),
+                                    &operator.get_operator()
+                                ))
+                            },
+                            &operator.get_token().location_info,
+                        ),
+                        ErrorMessage::new(
+                            if is_compile_time(&right_type) {
+                                Some(format!("{}", right_type.get_label()))
+                            } else {
+                                Some(format!("'{}'", right_type.get_label()))
+                            },
+                            &right.get_token().location_info,
+                        ),
+                    ],
+                    None,
+                );
+            }
+            // If the left type isn't a bool but the right type is
+            else if !is_bool(&left_type) && is_bool(&right_type) {
+                error.report(
+                    ErrorType::IncompatibleTypesError,
+                    vec![
+                        ErrorMessage::new(
+                            if is_compile_time(&left_type) {
+                                Some(format!(
+                                    "{} is incompatible with operator '{}'",
+                                    left_type.get_label(),
+                                    &operator.get_operator()
+                                ))
+                            } else {
+                                Some(format!(
+                                    "Expression with type '{}' is incompatible with operator '{}'",
+                                    left_type.get_label(),
+                                    &operator.get_operator()
+                                ))
+                            },
+                            &operator.get_token().location_info,
+                        ),
+                        ErrorMessage::new(
+                            if is_compile_time(&left_type) {
+                                Some(format!("{}", left_type.get_label()))
+                            } else {
+                                Some(format!("'{}'", left_type.get_label()))
+                            },
+                            &left.get_token().location_info,
+                        ),
+                    ],
+                    None,
+                );
+            }
+            // If neither type is a bool but they are the same
+            else if left_type == right_type {
+                error.report(
                         ErrorType::IncompatibleTypesError,
                         vec![
                             ErrorMessage::new(
@@ -970,10 +1071,10 @@ impl SemanticChecker<'_> {
                         ],
                         None,
                     );
-                }
-                // If neither type is a bool and they are different
-                else {
-                    self.error.report(
+            }
+            // If neither type is a bool and they are different
+            else {
+                error.report(
                         ErrorType::IncompatibleTypesError,
                         vec![
                             ErrorMessage::new(
@@ -1027,11 +1128,10 @@ impl SemanticChecker<'_> {
                         ],
                         None,
                     );
-                }
             }
-            // If the operator expects strings
-            PrimitiveClass::String => {}
         }
+        // If the operator expects strings
+        PrimitiveClass::String => {}
     }
 }
 

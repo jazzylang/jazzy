@@ -22,6 +22,8 @@
  * SOFTWARE.
  */
 
+use std::collections::HashMap;
+
 use crate::{
     infrastructure::{
         error::{ConsoleErrorReporter, ErrorReporter, ErrorType},
@@ -40,13 +42,13 @@ use super::interpreter::Interpreter;
 #[test]
 fn test_evaluate_binary_arithmetic_expression() {
     let mut ast = AST::new();
-
+    let mut variables = HashMap::new();
     let mut logger = Logger::new(None);
     let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
         false, false, false, false, 0,
     ));
 
-    let mut interpreter = Interpreter::new(&mut ast, &mut logger, &mut error);
+    let mut interpreter = Interpreter::new(&mut ast, &mut variables, &mut logger, &mut error);
 
     // -------------------------------
     // Setting up operands (can reuse)
@@ -222,13 +224,13 @@ fn test_evaluate_binary_arithmetic_expression() {
 #[test]
 fn test_evaluate_binary_boolean_expression() {
     let mut ast = AST::new();
-
+    let mut variables = HashMap::new();
     let mut logger = Logger::new(None);
     let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
         false, false, false, false, 0,
     ));
 
-    let mut interpreter = Interpreter::new(&mut ast, &mut logger, &mut error);
+    let mut interpreter = Interpreter::new(&mut ast, &mut variables, &mut logger, &mut error);
 
     // -------------------------------
     // Setting up operands (can reuse)
@@ -368,13 +370,13 @@ fn test_evaluate_binary_boolean_expression() {
 #[test]
 fn test_evaluate_binary_comparison_expression() {
     let mut ast = AST::new();
-
+    let mut variables = HashMap::new();
     let mut logger = Logger::new(None);
     let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
         false, false, false, false, 0,
     ));
 
-    let mut interpreter = Interpreter::new(&mut ast, &mut logger, &mut error);
+    let mut interpreter = Interpreter::new(&mut ast, &mut variables, &mut logger, &mut error);
 
     // -------------------------------
     // Setting up operands (can reuse)
@@ -580,13 +582,13 @@ fn test_evaluate_binary_comparison_expression() {
 #[test]
 fn test_error_evaluate_binary_comparison_expression() {
     let mut ast = AST::new();
-
+    let mut variables = HashMap::new();
     let mut logger = Logger::new(None);
     let mut error = ErrorReporter::ConsoleErrorReporter(ConsoleErrorReporter::new(
         false, false, false, false, 0,
     ));
 
-    let mut interpreter = Interpreter::new(&mut ast, &mut logger, &mut error);
+    let mut interpreter = Interpreter::new(&mut ast, &mut variables, &mut logger, &mut error);
 
     // -------------------
     // Setting up operands
@@ -603,18 +605,12 @@ fn test_error_evaluate_binary_comparison_expression() {
     interpreter
         .ast
         .get_mut_node(left_pointer)
-        .set_type(DataType::new(
-            Type::Primitive(Primitive::I8),
-            Type::Primitive(Primitive::I8).get_label(),
-        ));
+        .set_type(DataType::new(Type::Primitive(Primitive::I8)));
 
     interpreter
         .ast
         .get_mut_node(right_pointer)
-        .set_type(DataType::new(
-            Type::Primitive(Primitive::I8),
-            Type::Primitive(Primitive::I8).get_label(),
-        ));
+        .set_type(DataType::new(Type::Primitive(Primitive::I8)));
 
     interpreter.evaluate_binary_arithmetic_expression(
         &BinaryExprNode::new(

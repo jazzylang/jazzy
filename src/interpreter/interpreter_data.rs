@@ -22,15 +22,36 @@
  * SOFTWARE.
  */
 
-#[derive(PartialEq, Debug)]
+use std::fmt;
+
+#[derive(Clone, PartialEq, Debug)]
 pub enum Value {
     LiteralVal(LiteralVal),
 }
 
-#[derive(PartialEq, Debug)]
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Value::LiteralVal(literal) => write!(f, "{}", literal),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub enum LiteralVal {
     Int(i128),
     Float(f64),
     Bool(bool),
     String(String),
+}
+
+impl fmt::Display for LiteralVal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LiteralVal::Int(int) => write!(f, "{}", int),
+            LiteralVal::Float(float) => write!(f, "{}", float),
+            LiteralVal::Bool(bool_val) => write!(f, "{}", bool_val),
+            LiteralVal::String(string) => write!(f, "{}", string),
+        }
+    }
 }

@@ -22,6 +22,13 @@
  * SOFTWARE.
  */
 
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
+
+use crate::{
+    infrastructure::{error::ErrorReporter, log::Logger},
+    parser::parser_data::{NodePointer, AST},
+};
+
 pub enum PrimitiveClass {
     Number,
     Bool,
@@ -35,10 +42,10 @@ pub struct DataType {
 }
 
 impl DataType {
-    pub fn new(data_type: Type, type_label: &str) -> DataType {
+    pub fn new(data_type: Type) -> DataType {
         return DataType {
             data_type,
-            type_label: String::from(type_label),
+            type_label: data_type.get_label().to_owned(),
         };
     }
 
@@ -119,4 +126,183 @@ impl Type {
 pub enum CanCast {
     Yes,
     No(String),
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum Symbol {
+    Variable(VariableSymbol),
+}
+
+impl Symbol {
+    pub fn get_name(&self) -> &str {
+        match self {
+            Symbol::Variable(symbol) => &symbol.name,
+        }
+    }
+
+    pub fn get_type(&self) -> DataType {
+        match self {
+            Symbol::Variable(symbol) => symbol.data_type.clone(),
+        }
+    }
+
+    pub fn set_type(&mut self, data_type: DataType) {
+        match self {
+            Symbol::Variable(symbol) => symbol.data_type = data_type,
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct VariableSymbol {
+    pub name: String,
+    pub data_type: DataType,
+    pub mutable: bool,
+}
+
+impl VariableSymbol {
+    pub fn new(name: String, mutable: bool) -> VariableSymbol {
+        return VariableSymbol {
+            name,
+            data_type: DataType::new(Type::UnTyped),
+            mutable,
+        };
+    }
+
+    pub fn new_with_type(name: String, data_type: DataType, mutable: bool) -> VariableSymbol {
+        return VariableSymbol {
+            name,
+            data_type,
+            mutable,
+        };
+    }
+}
+
+#[derive(Debug)]
+pub struct SymbolTable {
+    stack: Vec<HashMap<String, Rc<RefCell<Symbol>>>>,
+}
+
+impl SymbolTable {
+    pub fn new() -> SymbolTable {
+        return SymbolTable {
+            stack: vec![HashMap::new()],
+        };
+    }
+
+    pub fn open_scope(&mut self) {
+        self.stack.push(HashMap::new());
+    }
+
+    pub fn close_scope(&mut self) {
+        self.stack.pop();
+    }
+
+    pub fn find_symbol(&self, name: &str) -> Option<&Rc<RefCell<Symbol>>> {
+        // Look for the symbol with the given name,
+        // starting in the topmost scope
+        for scope in self.stack.iter().rev() {
+            match scope.get(name) {
+                Some(symbol) => return Some(symbol),
+                None => {}
+            }
+        }
+
+        // If we made it here, we couldn't find the symbol
+        return None;
+    }
+
+    pub fn new_symbol(&mut self, name: String, symbol: Symbol) -> Rc<RefCell<Symbol>> {
+        // Create a smart pointer to the new symbol
+        let pointer = Rc::new(RefCell::new(symbol));
+
+        // Insert the pointer into the topmost symbol table
+        let top_scope_index = self.stack.len() - 1;
+        self.stack[top_scope_index].insert(name, pointer.clone());
+
+        return pointer;
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum Callback {
+    GlobalDeclarations(GlobalDeclarations),
+    IdentifiersPre(IdentifiersPre),
+    IdentifiersPost(IdentifiersPost),
+    TypeChecking(TypeChecking),
+    MiscellaneousChecks(MiscellaneousChecks),
+}
+
+impl Callback {
+    pub fn run(
+        &mut self,
+        node: NodePointer,
+        ast: &mut AST,
+        symbol_table: &mut SymbolTable,
+        logger: &mut Logger,
+        error: &mut ErrorReporter,
+    ) {
+        match self {
+            Callback::GlobalDeclarations(callback) => {
+                callback.run(node, ast, symbol_table, logger, error)
+            }
+            Callback::IdentifiersPre(callback) => {
+                callback.run(node, ast, symbol_table, logger, error)
+            }
+            Callback::IdentifiersPost(callback) => {
+                callback.run(node, ast, symbol_table, logger, error)
+            }
+            Callback::TypeChecking(callback) => {
+                callback.run(node, ast, symbol_table, logger, error)
+            }
+            Callback::MiscellaneousChecks(callback) => {
+                callback.run(node, ast, symbol_table, logger, error)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct GlobalDeclarations {}
+
+impl GlobalDeclarations {
+    pub fn new() -> GlobalDeclarations {
+        return GlobalDeclarations {};
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct IdentifiersPre {}
+
+impl IdentifiersPre {
+    pub fn new() -> IdentifiersPre {
+        return IdentifiersPre {};
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct IdentifiersPost {}
+
+impl IdentifiersPost {
+    pub fn new() -> IdentifiersPost {
+        return IdentifiersPost {};
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct TypeChecking {}
+
+impl TypeChecking {
+    pub fn new() -> TypeChecking {
+        return TypeChecking {};
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct MiscellaneousChecks {}
+
+impl MiscellaneousChecks {
+    pub fn new() -> MiscellaneousChecks {
+        return MiscellaneousChecks {};
+    }
 }
