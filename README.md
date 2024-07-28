@@ -40,16 +40,19 @@ jazzy currently only supports collections of variable assignments and expression
 
 =^..^=
 ```
-or create a `.jzy` file with a single expression in it:
+or create a `.jzy` file with a series of statements and expressions:
 ```
-// in file expression.jzy
-1 < 3 and 99 >= 100
+// in file test.jzy
+let bool-val := true;
+bool-val and (1 <= 99)
 ```
 and invoke the compiler on it:
 ```
-$ jazzy expression.jzy
-false
+$ jazzy test.jzy
+true
 ```
+
+The final line of the file must be an expression in order for a value to be displayed when executing it. Any expressions that take place earlier in the file will simply be ignored.
 
 ### Variables
 Variables can be declared as such:
@@ -57,7 +60,7 @@ Variables can be declared as such:
 let x := 1;
 ```
 
-The name of your variable is called an "identifier". The idiomatic style for jazzy variable identifiers is not snake case or camel case, like in a lot of common programming languages, but what many people call "kebab case":
+The name of your variable is called an "identifier". The idiomatic style for jazzy variable identifiers is not snake case or camel case, like in a lot of common programming languages, but "kebab case":
 ```
 let some-variable := 3.14;
 ```
